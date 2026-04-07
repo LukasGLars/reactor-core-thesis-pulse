@@ -210,9 +210,8 @@ INVALIDATION CHECKLIST:
 TODAY'S PRE-COMPUTED FACTS ({facts['today']}):
 
 MACRO:
-- Real yield: {facts['ry']} (invalidation threshold: >3.0% sustained 12m — currently {facts['ry_dist']} bps away)
-- DXY: {facts['dxy']} (invalidation threshold: >115 sustained 6m — currently {facts['dxy_dist']} pts away)
-- Fed TGA: {facts['tga']} | Fed RRP: {facts['rrp']}
+- Real yield: {facts['ry']} — {facts['ry_dist']}bps to 3.0% invalidation — {facts['ry_signal']}
+- DXY: {facts['dxy']} — {facts['dxy_dist']}pts to 115 invalidation — {facts['dxy_signal']}
 
 HEDGES:
 - Gold: {facts['gold_px']} | 1m {facts['gold_1m']} | 3m {facts['gold_3m']} | {facts['gold_dd']} from 52wH
@@ -312,8 +311,6 @@ def main():
 
     print("Fetching FRED...")
     ry_val,  ry_prev,  ry_date  = fred_latest("DFII10")
-    tga_val, tga_prev, tga_date = fred_latest("WTREGEN")
-    rrp_val, rrp_prev, rrp_date = fred_latest("RRPONTSYD")
 
     print("Fetching EDGAR...")
     lly_c,     lly_p     = edgar_revenue("LLY")
@@ -343,10 +340,10 @@ def main():
         "today":          today,
         "ry":             fmt(ry_val, 2, suffix="%"),
         "ry_dist":        fmt(300 - ry_val * 100, 0) if ry_val else "n/a",
+        "ry_signal":      ("TAILWIND" if ry_val < 2.0 else "NEUTRAL" if ry_val < 2.5 else "WATCH" if ry_val < 3.0 else "INVALIDATION") if ry_val else "n/a",
         "dxy":            fmt(dxy["price"], 2) if dxy else "n/a",
         "dxy_dist":       fmt(115 - dxy["price"], 2) if dxy else "n/a",
-        "tga":            fmt_bn(tga_val * 1e6 if tga_val else None),
-        "rrp":            fmt_bn(rrp_val * 1e6 if rrp_val else None),
+        "dxy_signal":     ("TAILWIND" if dxy["price"] < 100 else "NEUTRAL" if dxy["price"] < 105 else "WATCH" if dxy["price"] < 115 else "INVALIDATION") if dxy else "n/a",
         "gold_px":        fmt(gold["price"], 2, prefix="$") if gold else "n/a",
         "gold_1m":        _f(gold,   "chg_1m", suffix="%"),
         "gold_3m":        _f(gold,   "chg_3m", suffix="%"),
@@ -409,14 +406,14 @@ def main():
     lines.append("")
     lines.append("  MACRO")
     lines.append(f"  {'-'*64}")
-    lines.append(f"  10Y Real Yield    {fmt(ry_val, suffix='%'):<12}  (as of {ry_date})")
+    ry_signal = facts["ry_signal"]
+    ry_dist   = facts["ry_dist"]
+    lines.append(f"  10Y Real Yield    {fmt(ry_val, 2, suffix='%'):<12}  (as of {ry_date})  {ry_dist}bps to 3.0%  [{ry_signal}]")
+    dxy_signal = facts["dxy_signal"]
+    dxy_dist   = facts["dxy_dist"]
     lines.append(f"  DXY               {fmt(dxy['price'], 2) if dxy else 'n/a':<12}  "
                  f"1d {fmt(dxy['chg_1d'],1,suffix='%') if dxy else 'n/a'}  "
-                 f"52wH {fmt(dxy['high_52w'],2) if dxy else 'n/a'} ({fmt(dxy['dd_52w'],1,suffix='%') if dxy else 'n/a'})")
-    tga_chg = fmt_bn((tga_val - tga_prev) * 1e6) if tga_val and tga_prev else "n/a"
-    tga_dir = ("drawdown" if tga_val < tga_prev else "rebuild") if tga_val and tga_prev else ""
-    lines.append(f"  Fed TGA           {fmt_bn(tga_val*1e6 if tga_val else None):<12}  {tga_chg} ({tga_dir})  (as of {tga_date})")
-    lines.append(f"  Fed RRP           {fmt_bn(rrp_val*1e6 if rrp_val else None):<12}  (as of {rrp_date})")
+                 f"{dxy_dist}pts to 115  [{dxy_signal}]")
     lines.append("")
     lines.append("  HEDGES")
     lines.append(f"  {'-'*64}")
