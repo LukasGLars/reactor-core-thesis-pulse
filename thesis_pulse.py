@@ -4,11 +4,13 @@ Reactor Core Thesis Pulse v1.0
 Daily thesis monitoring for 8-position portfolio.
 Runs via GitHub Actions — sends email with interpretation + raw data.
 """
-import requests, json, os, sys, smtplib
+import requests, json, os, sys, smtplib, time
 from datetime import date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -31,19 +33,42 @@ def fred_url(series_id):
     return (f"https://api.stlouisfed.org/fred/series/observations"
             f"?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&sort_order=asc")
 
+def _make_session(max_retries=5, backoff=0.5):
+    session = requests.Session()
+    retry = Retry(
+        total=max_retries,
+        backoff_factor=backoff,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["GET", "HEAD"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
 def fred_latest(series_id):
-    try:
-        r = requests.get(fred_url(series_id), timeout=15)
-        r.raise_for_status()
-        obs = r.json().get("observations", [])
-        rows = [(o["date"], float(o["value"])) for o in obs
-                if o.get("value") not in (".", "")]
-        if len(rows) >= 2:
-            return rows[-1][1], rows[-2][1], rows[-1][0]
-        if rows:
-            return rows[-1][1], None, rows[-1][0]
-    except Exception:
-        pass
+    session = _make_session()
+    for attempt in range(1, 6):
+        try:
+            r = session.get(
+                fred_url(series_id),
+                headers={"User-Agent": "thesis-pulse/1.0"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            obs = r.json().get("observations", [])
+            rows = [(o["date"], float(o["value"])) for o in obs
+                    if o.get("value") not in (".", "")]
+            if len(rows) >= 2:
+                return rows[-1][1], rows[-2][1], rows[-1][0]
+            if rows:
+                return rows[-1][1], None, rows[-1][0]
+            return None, None, None
+        except Exception as e:
+            wait = backoff * (2 ** (attempt - 1)) if (backoff := 0.5) else 0.5
+            print(f"  FRED {series_id} retry {attempt}/5: {e}")
+            time.sleep(wait)
     return None, None, None
 
 # ── YAHOO FINANCE ──────────────────────────────────────────
@@ -138,18 +163,33 @@ def edgar_revenue(ticker):
 
 # ── URANIUM ────────────────────────────────────────────────
 def get_uranium():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.investing.com",
+    }
+    # Primary: investing.com futures
     try:
-        r = requests.get(
-            "https://tradingeconomics.com/commodity/uranium",
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            timeout=15,
-        )
+        r = requests.get("https://www.investing.com/commodities/uranium-futures",
+                         headers=headers, timeout=15)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "html.parser")
+            el = soup.select_one('[data-test="instrument-price-last"]')
+            if el:
+                return float(el.get_text(strip=True).replace(",", ""))
+    except Exception:
+        pass
+    # Fallback: Trading Economics
+    try:
+        r = requests.get("https://tradingeconomics.com/commodity/uranium",
+                         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                         timeout=15)
         soup = BeautifulSoup(r.text, "html.parser")
         for sel in ["#p", ".te-prp-ln", "[id='p']"]:
             el = soup.select_one(sel)
             if el:
                 try:
-                    return float(el.get_text(strip=True).replace(",",""))
+                    return float(el.get_text(strip=True).replace(",", ""))
                 except Exception:
                     pass
         for script in soup.find_all("script", type="application/ld+json"):
