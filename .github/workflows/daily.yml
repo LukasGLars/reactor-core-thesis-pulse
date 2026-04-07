@@ -1,0 +1,28 @@
+name: Thesis Pulse Daily
+
+on:
+  schedule:
+    - cron: '0 7 * * 1-5'   # 07:00 UTC = 09:00 CET, weekdays
+  workflow_dispatch:          # manual trigger
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run Thesis Pulse
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FRED_API_KEY:      ${{ secrets.FRED_API_KEY }}
+          EMAIL_ADDRESS:     ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_PASSWORD:    ${{ secrets.EMAIL_PASSWORD }}
+          RECIPIENT_EMAIL:   ${{ secrets.RECIPIENT_EMAIL }}
+        run: python thesis_pulse.py

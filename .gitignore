@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.env
+venv/
+.venv/
+
+# API keys and secrets
+apis.txt
+fred api.txt
+*.key
+secrets.txt
+
+# Local test artifacts
+output.txt
+test_data.py
