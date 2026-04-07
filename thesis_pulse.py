@@ -163,8 +163,8 @@ def edgar_revenue(ticker):
 # ── URANIUM ────────────────────────────────────────────────
 def get_uranium():
     """IMF uranium price via FRED (PURANUSDM). Monthly, ~6wk lag. Zero scraping risk."""
-    val, _, as_of = fred_latest("PURANUSDM")
-    return val, as_of
+    val, prev, as_of = fred_latest("PURANUSDM")
+    return val, prev, as_of
 
 # ── HELPERS ────────────────────────────────────────────────
 def pct(a, b):
@@ -329,7 +329,7 @@ def main():
     meta_c,    meta_p    = edgar_concept("META",  "PaymentsToAcquirePropertyPlantAndEquipment")
 
     print("Fetching uranium...")
-    uranium, uranium_date = get_uranium()
+    uranium, uranium_prev, uranium_date = get_uranium()
 
     # Compute
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
@@ -447,7 +447,9 @@ def main():
     lines.append("  CYCLICAL")
     lines.append(f"  {'-'*64}")
     lines.append(f"  CCJ price         {fmt_px(ccj_px)}")
+    uranium_mom = fmt(pct(uranium, uranium_prev), 1, suffix="%") if uranium and uranium_prev else "n/a"
     lines.append(f"  Uranium (IMF/FRED) {fmt(uranium, 2, prefix='$', suffix='/lb') if uranium else 'n/a'}"
+                 f"  1m {uranium_mom}"
                  + (f"  (as of {uranium_date}, monthly)" if uranium_date else ""))
     lines.append("")
     lines.append("  CONVEXITY")
