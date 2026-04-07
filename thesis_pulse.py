@@ -413,7 +413,9 @@ def main():
     lines.append(f"  DXY               {fmt(dxy['price'], 2) if dxy else 'n/a':<12}  "
                  f"1d {fmt(dxy['chg_1d'],1,suffix='%') if dxy else 'n/a'}  "
                  f"52wH {fmt(dxy['high_52w'],2) if dxy else 'n/a'} ({fmt(dxy['dd_52w'],1,suffix='%') if dxy else 'n/a'})")
-    lines.append(f"  Fed TGA           {fmt_bn(tga_val*1e6 if tga_val else None):<12}  (as of {tga_date})")
+    tga_chg = fmt_bn((tga_val - tga_prev) * 1e6) if tga_val and tga_prev else "n/a"
+    tga_dir = ("drawdown" if tga_val < tga_prev else "rebuild") if tga_val and tga_prev else ""
+    lines.append(f"  Fed TGA           {fmt_bn(tga_val*1e6 if tga_val else None):<12}  {tga_chg} ({tga_dir})  (as of {tga_date})")
     lines.append(f"  Fed RRP           {fmt_bn(rrp_val*1e6 if rrp_val else None):<12}  (as of {rrp_date})")
     lines.append("")
     lines.append("  HEDGES")
