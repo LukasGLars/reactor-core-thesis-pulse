@@ -8,7 +8,6 @@ import requests, json, os, sys, smtplib, time
 from datetime import date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -163,45 +162,9 @@ def edgar_revenue(ticker):
 
 # ── URANIUM ────────────────────────────────────────────────
 def get_uranium():
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.investing.com",
-    }
-    # Primary: investing.com futures
-    try:
-        r = requests.get("https://www.investing.com/commodities/uranium-futures",
-                         headers=headers, timeout=15)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, "html.parser")
-            el = soup.select_one('[data-test="instrument-price-last"]')
-            if el:
-                return float(el.get_text(strip=True).replace(",", ""))
-    except Exception:
-        pass
-    # Fallback: Trading Economics
-    try:
-        r = requests.get("https://tradingeconomics.com/commodity/uranium",
-                         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-                         timeout=15)
-        soup = BeautifulSoup(r.text, "html.parser")
-        for sel in ["#p", ".te-prp-ln", "[id='p']"]:
-            el = soup.select_one(sel)
-            if el:
-                try:
-                    return float(el.get_text(strip=True).replace(",", ""))
-                except Exception:
-                    pass
-        for script in soup.find_all("script", type="application/ld+json"):
-            try:
-                d = json.loads(script.string or "")
-                if isinstance(d, dict) and "price" in d:
-                    return float(d["price"])
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return None
+    """IMF uranium price via FRED (PURANUSDM). Monthly, ~6wk lag. Zero scraping risk."""
+    val, _, as_of = fred_latest("PURANUSDM")
+    return val, as_of
 
 # ── HELPERS ────────────────────────────────────────────────
 def pct(a, b):
@@ -366,7 +329,7 @@ def main():
     meta_c,    meta_p    = edgar_concept("META",  "PaymentsToAcquirePropertyPlantAndEquipment")
 
     print("Fetching uranium...")
-    uranium = get_uranium()
+    uranium, uranium_date = get_uranium()
 
     # Compute
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
@@ -413,7 +376,7 @@ def main():
         "jnj_div_yoy":    fmt(pct(jnj_div_c["val"], jnj_div_p["val"] if jnj_div_p else None), 1, suffix="%") if jnj_div_c else "n/a",
         "ccj_px":         fmt(ccj_px["price"], 2, prefix="$") if ccj_px else "n/a",
         "ccj_dd":         _f(ccj_px, "dd_52w", suffix="%"),
-        "uranium":        fmt(uranium, 2, prefix="$", suffix="/lb") if uranium else "n/a",
+        "uranium":        fmt(uranium, 2, prefix="$", suffix="/lb") + (f" (as of {uranium_date})" if uranium_date else "") if uranium else "n/a",
         "uranium_dist":   uranium - 50 if uranium else 0,
         "vrt_px":         fmt(vrt_px["price"], 2, prefix="$") if vrt_px else "n/a",
         "vrt_dd":         _f(vrt_px, "dd_52w", suffix="%"),
@@ -484,7 +447,8 @@ def main():
     lines.append("  CYCLICAL")
     lines.append(f"  {'-'*64}")
     lines.append(f"  CCJ price         {fmt_px(ccj_px)}")
-    lines.append(f"  Uranium spot      {fmt(uranium, 2, prefix='$', suffix='/lb') if uranium else 'SCRAPE FAILED'}")
+    lines.append(f"  Uranium (IMF/FRED) {fmt(uranium, 2, prefix='$', suffix='/lb') if uranium else 'n/a'}"
+                 + (f"  (as of {uranium_date}, monthly)" if uranium_date else ""))
     lines.append("")
     lines.append("  CONVEXITY")
     lines.append(f"  {'-'*64}")
