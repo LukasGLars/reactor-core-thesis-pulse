@@ -25,7 +25,7 @@ jobs:
       - name: Run Thesis Pulse
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          FRED_API_KEY:      ${{ secrets.FRED_API_KEY }}
+          FRED_API_KEY:      ${{ secrets.FRED_API }}
           EMAIL_ADDRESS:     ${{ secrets.EMAIL_ADDRESS }}
           EMAIL_PASSWORD:    ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL:   ${{ secrets.RECIPIENT_EMAIL }}

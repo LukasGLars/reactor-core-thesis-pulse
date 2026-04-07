@@ -299,8 +299,6 @@ def main():
     today = date.today().isoformat()
     print(f"Thesis Pulse | {today}")
 
-    print(f"FRED key present: {bool(FRED_API_KEY)} | length: {len(FRED_API_KEY)}")
-
     print("Fetching Yahoo Finance...")
     gold    = yahoo_history("GC%3DF");  time.sleep(1)
     silver  = yahoo_history("SI%3DF");  time.sleep(1)
