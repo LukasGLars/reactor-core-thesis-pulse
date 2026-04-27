@@ -372,7 +372,7 @@ def main():
         "ry_chg_4w":      fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a",
         "ry_weeks_to_inv": fmt(
             (300 - ry_val * 100) / ((ry_val - ry_4w) * 100 / 4), 0, suffix=" weeks to invalidation"
-        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("easing — moving away from invalidation" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
+        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("moving away from invalidation" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
         "dxy":            fmt(dxy["price"], 2) if dxy else "n/a",
         "dxy_dist":       fmt(115 - dxy["price"], 2) if dxy else "n/a",
         "dxy_signal":     ("TAILWIND" if dxy["price"] < 100 else "NEUTRAL" if dxy["price"] < 105 else "WATCH" if dxy["price"] < 115 else "INVALIDATION") if dxy else "n/a",
