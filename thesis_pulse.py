@@ -371,8 +371,8 @@ def main():
         "ry_chg_1d":      fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a",
         "ry_chg_4w":      fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a",
         "ry_weeks_to_inv": fmt(
-            (300 - ry_val * 100) / ((ry_val - ry_4w) * 100 / 4), 0, suffix=" weeks"
-        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("falling" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
+            (300 - ry_val * 100) / ((ry_val - ry_4w) * 100 / 4), 0, suffix=" weeks to invalidation"
+        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("easing — moving away from invalidation" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
         "dxy":            fmt(dxy["price"], 2) if dxy else "n/a",
         "dxy_dist":       fmt(115 - dxy["price"], 2) if dxy else "n/a",
         "dxy_signal":     ("TAILWIND" if dxy["price"] < 100 else "NEUTRAL" if dxy["price"] < 105 else "WATCH" if dxy["price"] < 115 else "INVALIDATION") if dxy else "n/a",
@@ -445,7 +445,7 @@ def main():
     ry_signal = facts["ry_signal"]
     ry_dist   = facts["ry_dist"]
     lines.append(f"  10Y Real Yield    {fmt(ry_val, 2, suffix='%'):<12}  (as of {ry_date})  {ry_dist}bps to 3.0%  [{ry_signal}]")
-    lines.append(f"  velocity          {facts['ry_chg_1d']} today  |  {facts['ry_chg_4w']} over 4wk  |  {facts['ry_weeks_to_inv']} to invalidation")
+    lines.append(f"  velocity          {facts['ry_chg_1d']} today  |  {facts['ry_chg_4w']} over 4wk  |  {facts['ry_weeks_to_inv']}")
     dxy_signal = facts["dxy_signal"]
     dxy_dist   = facts["dxy_dist"]
     lines.append(f"  DXY               {fmt(dxy['price'], 2) if dxy else 'n/a':<12}  "
