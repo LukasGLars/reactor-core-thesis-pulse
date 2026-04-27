@@ -259,10 +259,10 @@ CYCLICAL:
 - Uranium: {facts['uranium']} (monthly IMF series, {facts['uranium_lag']}d lag — treat as directional, not spot). Invalidation threshold: <$50/lb — currently ${facts['uranium_dist']:.2f} above.
 
 CONVEXITY:
-- VRT: price {facts['vrt_px']} ({facts['vrt_dd']} from 52wH) | revenue {facts['vrt_rev']} {facts['vrt_rev_yoy']} YoY
-- AVGO: price {facts['avgo_px']} ({facts['avgo_dd']} from 52wH) | revenue {facts['avgo_rev']} {facts['avgo_rev_yoy']} YoY
-- NVDA revenue: {facts['nvda_rev']} {facts['nvda_rev_yoy']} YoY (AI spend proxy)
-- Hyperscaler capex: {facts['capex']} {facts['capex_yoy']} YoY (invalidation threshold: <-30% YoY)
+- VRT: price {facts['vrt_px']} ({facts['vrt_dd']} from 52wH) | revenue {facts['vrt_rev']} {facts['vrt_rev_yoy']} YoY (as of {facts['vrt_rev_date']})
+- AVGO: price {facts['avgo_px']} ({facts['avgo_dd']} from 52wH) | revenue {facts['avgo_rev']} {facts['avgo_rev_yoy']} YoY (as of {facts['avgo_rev_date']})
+- NVDA revenue: {facts['nvda_rev']} {facts['nvda_rev_yoy']} YoY (as of {facts['nvda_rev_date']}, AI spend proxy)
+- Hyperscaler capex: {facts['capex']} {facts['capex_yoy']} YoY (as of {facts['capex_date']}, invalidation threshold: <-30% YoY)
 
 INSTRUCTIONS:
 - Use ONLY the pre-computed facts above. Do not recalculate or restate raw numbers beyond what is given.
@@ -437,14 +437,18 @@ def main():
         "vrt_dd":         _f(vrt_px, "dd_52w", suffix="%"),
         "vrt_rev":        fmt_bn(vrt_c["val"]) if vrt_c else "n/a",
         "vrt_rev_yoy":    fmt(pct(vrt_c["val"], vrt_p["val"] if vrt_p else None), 1, suffix="%") if vrt_c else "n/a",
+        "vrt_rev_date":   vrt_c["end"] if vrt_c else "n/a",
         "avgo_px":        fmt(avgo_px["price"], 2, prefix="$") if avgo_px else "n/a",
         "avgo_dd":        _f(avgo_px, "dd_52w", suffix="%"),
         "avgo_rev":       fmt_bn(avgo_c["val"]) if avgo_c else "n/a",
         "avgo_rev_yoy":   fmt(pct(avgo_c["val"], avgo_p["val"] if avgo_p else None), 1, suffix="%") if avgo_c else "n/a",
+        "avgo_rev_date":  avgo_c["end"] if avgo_c else "n/a",
         "nvda_rev":       fmt_bn(nvda_c["val"]) if nvda_c else "n/a",
         "nvda_rev_yoy":   fmt(pct(nvda_c["val"], nvda_p["val"] if nvda_p else None), 1, suffix="%") if nvda_c else "n/a",
+        "nvda_rev_date":  nvda_c["end"] if nvda_c else "n/a",
         "capex":          fmt_bn(capex_total) if capex_total else "n/a",
         "capex_yoy":      fmt(pct(capex_total, capex_total_prev), 1, suffix="%") if capex_total else "n/a",
+        "capex_date":     max(c["end"] for c in [msft_c, googl_c, amzn_c, meta_c] if c) if any([msft_c, googl_c, amzn_c, meta_c]) else "n/a",
     }
 
     print("Calling Claude...")
