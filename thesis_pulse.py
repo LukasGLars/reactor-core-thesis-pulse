@@ -247,6 +247,7 @@ HEDGES:
 - Gold: {facts['gold_px']} | 1m {facts['gold_1m']} | 3m {facts['gold_3m']} | {facts['gold_dd']} from 52wH
 - Silver: {facts['silver_px']} | 1m {facts['silver_1m']} | 3m {facts['silver_3m']} | {facts['silver_dd']} from 52wH
 - G/S ratio: {facts['gs']} (deploy trigger <55 = {facts['gs_dist_deploy']} pts away | invalidation >90 = {facts['gs_dist_inv']} pts away)
+  Momentum: {facts['gs_chg_1d']} today, {facts['gs_chg_4w']} over 4 weeks — {facts['gs_velocity_label']}
 
 CARRY:
 - LLY: price {facts['lly_px']} ({facts['lly_dd']} from 52wH) | revenue {facts['lly_rev']} {facts['lly_rev_yoy']} YoY ({facts['lly_rev_date']})
@@ -360,6 +361,10 @@ def main():
 
     # Compute
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
+    gs_ratio_1d_ago  = (gold["price"] - gold["pts_1d"]) / (silver["price"] - silver["pts_1d"]) if gold and silver and gold.get("pts_1d") and silver.get("pts_1d") else None
+    gs_ratio_4w_ago  = (gold["price"] - gold["pts_4w"]) / (silver["price"] - silver["pts_4w"]) if gold and silver and gold.get("pts_4w") and silver.get("pts_4w") else None
+    gs_chg_1d        = gs_ratio - gs_ratio_1d_ago if gs_ratio and gs_ratio_1d_ago else None
+    gs_chg_4w        = gs_ratio - gs_ratio_4w_ago if gs_ratio and gs_ratio_4w_ago else None
     capex_vals       = [x["val"] for x in [msft_c, googl_c, amzn_c, meta_c] if x]
     capex_prevs      = [x["val"] for x in [msft_p, googl_p, amzn_p, meta_p] if x]
     capex_total      = sum(capex_vals)  if capex_vals  else None
@@ -397,6 +402,13 @@ def main():
         "gs":             fmt(gs_ratio, 1) if gs_ratio else "n/a",
         "gs_dist_deploy": fmt(gs_ratio - 55, 1) if gs_ratio else "n/a",
         "gs_dist_inv":    fmt(90 - gs_ratio, 1) if gs_ratio else "n/a",
+        "gs_chg_1d":      fmt(gs_chg_1d, 1) if gs_chg_1d is not None else "n/a",
+        "gs_chg_4w":      fmt(gs_chg_4w, 1) if gs_chg_4w is not None else "n/a",
+        "gs_velocity_label": (
+            fmt((gs_ratio - 55) / (-gs_chg_4w / 4), 0, suffix=" weeks to deploy trigger") if gs_chg_4w and gs_chg_4w < 0 and gs_ratio and gs_ratio > 55
+            else fmt((90 - gs_ratio) / (gs_chg_4w / 4), 0, suffix=" weeks to invalidation") if gs_chg_4w and gs_chg_4w > 0 and gs_ratio and gs_ratio < 90
+            else "n/a"
+        ) if gs_ratio and gs_chg_4w else "n/a",
         "lly_px":         fmt(lly_px["price"], 2, prefix="$") if lly_px else "n/a",
         "lly_dd":         _f(lly_px, "dd_52w", suffix="%"),
         "lly_rev":        fmt_bn(lly_c["val"]) if lly_c else "n/a",
@@ -468,6 +480,7 @@ def main():
     lines.append(f"  Gold              {fmt_px(gold)}")
     lines.append(f"  Silver            {fmt_px(silver)}")
     lines.append(f"  G/S Ratio         {fmt(gs_ratio, 1):<12}  (deploy trigger <55)")
+    lines.append(f"  velocity          {facts['gs_chg_1d']} today  |  {facts['gs_chg_4w']} over 4wk  |  {facts['gs_velocity_label']}")
     lines.append("")
     lines.append("  CARRY")
     lines.append(f"  {'-'*64}")
