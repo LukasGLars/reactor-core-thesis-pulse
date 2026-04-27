@@ -113,7 +113,9 @@ def yahoo_history(symbol):
         return {
             "price":    curr,
             "chg_1d":   (curr - prev) / prev * 100,
+            "pts_1d":   curr - prev,
             "chg_1m":   (curr - closes[-22]) / closes[-22] * 100 if len(closes) >= 22 else None,
+            "pts_4w":   curr - closes[-22] if len(closes) >= 22 else None,
             "chg_3m":   (curr - closes[-63]) / closes[-63] * 100 if len(closes) >= 63 else None,
             "high_52w": high_52w,
             "dd_52w":   (curr - high_52w) / high_52w * 100,
@@ -239,6 +241,7 @@ MACRO:
 - Real yield: {facts['ry']} — {facts['ry_dist']}bps to 3.0% invalidation — {facts['ry_signal']}
   Momentum: {facts['ry_chg_1d']} today, {facts['ry_chg_4w']} over 4 weeks — {facts['ry_weeks_to_inv']} to invalidation at current pace
 - DXY: {facts['dxy']} — {facts['dxy_dist']}pts to 115 invalidation — {facts['dxy_signal']}
+  Momentum: {facts['dxy_chg_1d']} today, {facts['dxy_chg_4w']} over 4 weeks — {facts['dxy_weeks_to_inv']}
 
 HEDGES:
 - Gold: {facts['gold_px']} | 1m {facts['gold_1m']} | 3m {facts['gold_3m']} | {facts['gold_dd']} from 52wH
@@ -376,6 +379,13 @@ def main():
         "dxy":            fmt(dxy["price"], 2) if dxy else "n/a",
         "dxy_dist":       fmt(115 - dxy["price"], 2) if dxy else "n/a",
         "dxy_signal":     ("TAILWIND" if dxy["price"] < 100 else "NEUTRAL" if dxy["price"] < 105 else "WATCH" if dxy["price"] < 115 else "INVALIDATION") if dxy else "n/a",
+        "dxy_chg_1d":     fmt(dxy["pts_1d"], 2, suffix="pts") if dxy else "n/a",
+        "dxy_chg_4w":     fmt(dxy["pts_4w"], 2, suffix="pts") if dxy and dxy["pts_4w"] is not None else "n/a",
+        "dxy_weeks_to_inv": fmt(
+            (115 - dxy["price"]) / (dxy["pts_4w"] / 4), 0, suffix=" weeks to invalidation"
+        ) if dxy and dxy.get("pts_4w") and dxy["pts_4w"] > 0 else (
+            "moving away from invalidation" if dxy and dxy.get("pts_4w") and dxy["pts_4w"] < 0 else "n/a"
+        ),
         "gold_px":        fmt(gold["price"], 2, prefix="$") if gold else "n/a",
         "gold_1m":        _f(gold,   "chg_1m", suffix="%"),
         "gold_3m":        _f(gold,   "chg_3m", suffix="%"),
@@ -451,6 +461,7 @@ def main():
     lines.append(f"  DXY               {fmt(dxy['price'], 2) if dxy else 'n/a':<12}  "
                  f"1d {fmt(dxy['chg_1d'],1,suffix='%') if dxy else 'n/a'}  "
                  f"{dxy_dist}pts to 115  [{dxy_signal}]")
+    lines.append(f"  velocity          {facts['dxy_chg_1d']} today  |  {facts['dxy_chg_4w']} over 4wk  |  {facts['dxy_weeks_to_inv']}")
     lines.append("")
     lines.append("  HEDGES")
     lines.append(f"  {'-'*64}")
