@@ -70,6 +70,32 @@ def fred_latest(series_id):
             time.sleep(wait)
     return None, None, None
 
+def fred_recent(series_id, lookback=20):
+    """Returns (latest, prev, lookback_val, latest_date) — lookback in business days."""
+    session = _make_session()
+    for attempt in range(1, 6):
+        try:
+            r = session.get(
+                fred_url(series_id),
+                headers={"User-Agent": "thesis-pulse/1.0"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            obs = r.json().get("observations", [])
+            rows = [(o["date"], float(o["value"])) for o in obs
+                    if o.get("value") not in (".", "")]
+            if not rows:
+                return None, None, None, None
+            latest_val, latest_date = rows[-1][1], rows[-1][0]
+            prev_val   = rows[-2][1]  if len(rows) >= 2        else None
+            lb_val     = rows[-lookback][1] if len(rows) >= lookback else rows[0][1]
+            return latest_val, prev_val, lb_val, latest_date
+        except Exception as e:
+            wait = 0.5 * (2 ** (attempt - 1))
+            print(f"  FRED {series_id} retry {attempt}/5: {e}")
+            time.sleep(wait)
+    return None, None, None, None
+
 # ── YAHOO FINANCE ──────────────────────────────────────────
 def yahoo_history(symbol):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1y"
@@ -211,6 +237,7 @@ TODAY'S PRE-COMPUTED FACTS ({facts['today']}):
 
 MACRO:
 - Real yield: {facts['ry']} — {facts['ry_dist']}bps to 3.0% invalidation — {facts['ry_signal']}
+  Momentum: {facts['ry_chg_1d']} today, {facts['ry_chg_4w']} over 4 weeks — {facts['ry_weeks_to_inv']} to invalidation at current pace
 - DXY: {facts['dxy']} — {facts['dxy_dist']}pts to 115 invalidation — {facts['dxy_signal']}
 
 HEDGES:
@@ -225,7 +252,7 @@ CARRY:
 
 CYCLICAL:
 - CCJ: price {facts['ccj_px']} ({facts['ccj_dd']} from 52wH)
-- Uranium spot: {facts['uranium']} (invalidation threshold: <$50/lb — currently ${facts['uranium_dist']:.2f} above)
+- Uranium: {facts['uranium']} (monthly IMF series, {facts['uranium_lag']}d lag — treat as directional, not spot). Invalidation threshold: <$50/lb — currently ${facts['uranium_dist']:.2f} above.
 
 CONVEXITY:
 - VRT: price {facts['vrt_px']} ({facts['vrt_dd']} from 52wH) | revenue {facts['vrt_rev']} {facts['vrt_rev_yoy']} YoY
@@ -310,7 +337,7 @@ def main():
     avgo_px = yahoo_history("AVGO")
 
     print("Fetching FRED...")
-    ry_val,  ry_prev,  ry_date  = fred_latest("DFII10")
+    ry_val, ry_prev, ry_4w, ry_date = fred_recent("DFII10", lookback=20)
 
     print("Fetching EDGAR...")
     lly_c,     lly_p     = edgar_revenue("LLY")
@@ -341,6 +368,11 @@ def main():
         "ry":             fmt(ry_val, 2, suffix="%"),
         "ry_dist":        fmt(300 - ry_val * 100, 0) if ry_val else "n/a",
         "ry_signal":      ("TAILWIND" if ry_val < 2.0 else "NEUTRAL" if ry_val < 2.5 else "WATCH" if ry_val < 3.0 else "INVALIDATION") if ry_val else "n/a",
+        "ry_chg_1d":      fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a",
+        "ry_chg_4w":      fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a",
+        "ry_weeks_to_inv": fmt(
+            (300 - ry_val * 100) / ((ry_val - ry_4w) * 100 / 4), 0, suffix=" weeks"
+        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("falling" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
         "dxy":            fmt(dxy["price"], 2) if dxy else "n/a",
         "dxy_dist":       fmt(115 - dxy["price"], 2) if dxy else "n/a",
         "dxy_signal":     ("TAILWIND" if dxy["price"] < 100 else "NEUTRAL" if dxy["price"] < 105 else "WATCH" if dxy["price"] < 115 else "INVALIDATION") if dxy else "n/a",
@@ -373,7 +405,11 @@ def main():
         "jnj_div_yoy":    fmt(pct(jnj_div_c["val"], jnj_div_p["val"] if jnj_div_p else None), 1, suffix="%") if jnj_div_c else "n/a",
         "ccj_px":         fmt(ccj_px["price"], 2, prefix="$") if ccj_px else "n/a",
         "ccj_dd":         _f(ccj_px, "dd_52w", suffix="%"),
-        "uranium":        fmt(uranium, 2, prefix="$", suffix="/lb") + (f" (as of {uranium_date})" if uranium_date else "") if uranium else "n/a",
+        "uranium_lag":    (date.today() - date.fromisoformat(uranium_date)).days if uranium_date else None,
+        "uranium":        fmt(uranium, 2, prefix="$", suffix="/lb") + (
+            f" (as of {uranium_date}, {(date.today() - date.fromisoformat(uranium_date)).days}d ago — monthly series)"
+            if uranium_date else ""
+        ) if uranium else "n/a",
         "uranium_dist":   uranium - 50 if uranium else 0,
         "vrt_px":         fmt(vrt_px["price"], 2, prefix="$") if vrt_px else "n/a",
         "vrt_dd":         _f(vrt_px, "dd_52w", suffix="%"),
@@ -409,6 +445,7 @@ def main():
     ry_signal = facts["ry_signal"]
     ry_dist   = facts["ry_dist"]
     lines.append(f"  10Y Real Yield    {fmt(ry_val, 2, suffix='%'):<12}  (as of {ry_date})  {ry_dist}bps to 3.0%  [{ry_signal}]")
+    lines.append(f"  velocity          {facts['ry_chg_1d']} today  |  {facts['ry_chg_4w']} over 4wk  |  {facts['ry_weeks_to_inv']} to invalidation")
     dxy_signal = facts["dxy_signal"]
     dxy_dist   = facts["dxy_dist"]
     lines.append(f"  DXY               {fmt(dxy['price'], 2) if dxy else 'n/a':<12}  "
