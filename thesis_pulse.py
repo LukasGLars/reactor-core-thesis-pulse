@@ -667,17 +667,17 @@ def main():
         "ry_chg_1d":      fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a",
         "ry_chg_4w":      fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a",
         "ry_weeks_to_inv": fmt(
-            (300 - ry_val * 100) / ((ry_val - ry_4w) * 100 / 4), 0, suffix=" weeks to invalidation"
-        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("moving away from invalidation" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
+            (300 - ry_val * 100) / ((ry_val - ry_4w) * 100 / 4), 0, suffix=" weeks to invalidation (rising = unfavorable)"
+        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("moving away from invalidation (falling = favorable)" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
         "dxy":            fmt(dxy["price"], 2) if dxy else "n/a",
         "dxy_dist":       fmt(115 - dxy["price"], 2) if dxy else "n/a",
         "dxy_signal":     ("TAILWIND" if dxy["price"] < 100 else "NEUTRAL" if dxy["price"] < 105 else "WATCH" if dxy["price"] < 115 else "INVALIDATION") if dxy else "n/a",
         "dxy_chg_1d":     fmt(dxy["pts_1d"], 2, suffix="pts") if dxy else "n/a",
         "dxy_chg_4w":     fmt(dxy["pts_4w"], 2, suffix="pts") if dxy and dxy["pts_4w"] is not None else "n/a",
         "dxy_weeks_to_inv": fmt(
-            (115 - dxy["price"]) / (dxy["pts_4w"] / 4), 0, suffix=" weeks to invalidation"
+            (115 - dxy["price"]) / (dxy["pts_4w"] / 4), 0, suffix=" weeks to invalidation (rising = unfavorable)"
         ) if dxy and dxy.get("pts_4w") and dxy["pts_4w"] > 0 else (
-            "moving away from invalidation" if dxy and dxy.get("pts_4w") and dxy["pts_4w"] < 0 else "n/a"
+            "moving away from invalidation (falling = favorable)" if dxy and dxy.get("pts_4w") and dxy["pts_4w"] < 0 else "n/a"
         ),
         "gold_px":        fmt(gold["price"], 2, prefix="$") if gold else "n/a",
         "gold_1m":        _f(gold,   "chg_1m", suffix="%"),
