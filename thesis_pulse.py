@@ -549,6 +549,7 @@ INSTRUCTIONS:
 - Price moves alone are never invalidation — always tie to thesis conditions.
 - Write only what the numbered facts above directly show. Every clause must trace back to a specific fact value.
 - Do not comment on conditions, risks, or events that have no corresponding fact — not even to say they are absent, unconfirmed, or not contradicted. If there is no fact for it, it does not appear in your output.
+- Do not restate or paraphrase thesis rationale, structural arguments, or position logic from the thesis document. Use the thesis document only to know what each number means, not as content to quote or summarize.
 
 OUTPUT FORMAT (use exactly these headers, no deviations):
 
