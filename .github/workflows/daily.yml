@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests openpyxl
 
       - name: Run Thesis Pulse
         env:
@@ -29,4 +29,8 @@ jobs:
           EMAIL_ADDRESS:     ${{ secrets.EMAIL_ADDRESS }}
           EMAIL_PASSWORD:    ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL:   ${{ secrets.RECIPIENT_EMAIL }}
+          WGC_API_AUTH:      ${{ secrets.WGC_API_AUTH }}
+          WGC_AUTH_COOKIE:   ${{ secrets.WGC_AUTH_COOKIE }}
+          WGC_AUTH_SESSION:  ${{ secrets.WGC_AUTH_SESSION }}
+          WGC_XSRF:          ${{ secrets.WGC_XSRF }}
         run: python thesis_pulse.py

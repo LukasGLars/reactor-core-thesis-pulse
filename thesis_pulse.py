@@ -22,6 +22,10 @@ EMAIL_PASSWORD    = os.environ.get("EMAIL_PASSWORD", "")
 RECIPIENT_EMAIL   = os.environ.get("RECIPIENT_EMAIL", EMAIL_ADDRESS)
 SMTP_SERVER       = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT         = int(os.environ.get("SMTP_PORT", "587"))
+WGC_API_AUTH      = os.environ.get("WGC_API_AUTH", "")
+WGC_AUTH_COOKIE   = os.environ.get("WGC_AUTH_COOKIE", "")
+WGC_AUTH_SESSION  = os.environ.get("WGC_AUTH_SESSION", "")
+WGC_XSRF          = os.environ.get("WGC_XSRF", "")
 
 _dir = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(_dir, "thesis_v3.md"),       encoding="utf-8") as f: THESIS_DOC       = f.read()
@@ -188,6 +192,108 @@ def edgar_revenue(ticker):
         return (curr, prev) if curr.get("end","") > curr2.get("end","") else (curr2, prev2)
     return (curr, prev) if curr else (curr2, prev2)
 
+# ── WGC CENTRAL BANK GOLD ──────────────────────────────────
+def wgc_central_banks():
+    """
+    Download WGC monthly central bank gold changes (IFS source, ~2-month lag).
+    Returns (ttm_tonnes, prev_ttm_tonnes, latest_date_str, lag_days).
+    Falls back to (None, None, None, None) if cookies missing or download fails.
+    Env vars: WGC_API_AUTH, WGC_AUTH_COOKIE, WGC_AUTH_SESSION, WGC_XSRF.
+    """
+    if not WGC_AUTH_SESSION:
+        return None, None, None, None
+    import io
+    try:
+        import openpyxl
+    except ImportError:
+        print("  openpyxl not installed — skipping WGC")
+        return None, None, None, None
+    from datetime import date as _date
+
+    _MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    cookies = {
+        "wgcApiAuth_cookie": WGC_API_AUTH,
+        "wgcAuth_cookie":    WGC_AUTH_COOKIE,
+        "wgcAuth_session":   WGC_AUTH_SESSION,
+        "XSRF-TOKEN":        WGC_XSRF,
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer":    "https://www.gold.org/goldhub/data/gold-reserves-by-country",
+        "Accept":     "application/octet-stream,*/*",
+    }
+
+    content = None
+    today = _date.today()
+    for delta in range(4):
+        m = today.month - 1 - delta
+        y = today.year
+        while m < 0:
+            m += 12
+            y -= 1
+        url = (f"https://www.gold.org/download/file/7741/"
+               f"Changes_latest_as_of_{_MONTHS[m]}{y}_IFS.xlsx")
+        try:
+            r = requests.get(url, cookies=cookies, headers=headers, timeout=30)
+            if r.status_code == 200 and len(r.content) > 50000:
+                content = r.content
+                break
+            print(f"  WGC {_MONTHS[m]}{y}: status {r.status_code}")
+        except Exception as e:
+            print(f"  WGC {_MONTHS[m]}{y}: {e}")
+
+    if content is None:
+        return None, None, None, None
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+        ws = wb["Monthly"]
+        header_row = list(ws.iter_rows(min_row=8, max_row=8, values_only=True))[0]
+        date_cols = [(i, v) for i, v in enumerate(header_row) if hasattr(v, 'year')]
+        if not date_cols:
+            return None, None, None, None
+
+        all_rows = list(ws.iter_rows(min_row=9, values_only=True))
+
+        # Find last column that has real data
+        last_ci = date_cols[0][0]
+        for ci, _ in date_cols:
+            has_data = any(
+                isinstance(r[ci], (int, float)) and r[ci] != 0
+                for r in all_rows if len(r) > ci
+            )
+            if has_data:
+                last_ci = ci
+
+        populated = [(ci, dt) for ci, dt in date_cols if ci <= last_ci]
+        if len(populated) < 13:
+            return None, None, None, None
+
+        ttm_cols  = populated[-12:]
+        prev_cols = populated[-24:-12]
+        latest_dt = ttm_cols[-1][1]
+
+        def _sum(cols):
+            total = 0.0
+            for ci, _ in cols:
+                for row in all_rows:
+                    v = row[ci] if len(row) > ci else None
+                    if isinstance(v, (int, float)):
+                        total += float(v)
+            return total
+
+        ttm  = _sum(ttm_cols)
+        prev = _sum(prev_cols) if len(prev_cols) == 12 else None
+        latest_date_str = latest_dt.strftime("%Y-%m")
+        lag = (_date.today() - latest_dt.date()).days
+
+        return round(ttm, 0), round(prev, 0) if prev is not None else None, latest_date_str, lag
+
+    except Exception as e:
+        print(f"  WGC parse error: {e}")
+        return None, None, None, None
+
+
 # ── URANIUM ────────────────────────────────────────────────
 def get_uranium():
     """IMF uranium price via FRED (PURANUSDM). Monthly, ~6wk lag. Zero scraping risk."""
@@ -248,6 +354,7 @@ HEDGES:
 - Silver: {facts['silver_px']} | 1m {facts['silver_1m']} | 3m {facts['silver_3m']} | {facts['silver_dd']} from 52wH
 - G/S ratio: {facts['gs']} (deploy trigger <55 = {facts['gs_dist_deploy']} pts away | invalidation >90 = {facts['gs_dist_inv']} pts away)
   Momentum: {facts['gs_chg_1d']} today, {facts['gs_chg_4w']} over 4 weeks — {facts['gs_velocity_label']}
+- Central bank gold demand (WGC/IFS, monthly): {facts['cb_gold_ttm']} TTM net | prior 12m {facts['cb_gold_prev']} | YoY change {facts['cb_gold_yoy']} | as of {facts['cb_gold_date']} ({facts['cb_gold_lag']} lag)
 
 CARRY:
 - LLY: price {facts['lly_px']} ({facts['lly_dd']} from 52wH) | revenue {facts['lly_rev']} {facts['lly_rev_yoy']} YoY ({facts['lly_rev_date']})
@@ -359,6 +466,9 @@ def main():
     print("Fetching uranium...")
     uranium, uranium_prev, uranium_date = get_uranium()
 
+    print("Fetching WGC central bank gold...")
+    cb_ttm, cb_prev, cb_date, cb_lag = wgc_central_banks()
+
     # Compute
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
     gs_ratio_1d_ago  = (gold["price"] - gold["pts_1d"]) / (silver["price"] - silver["pts_1d"]) if gold and silver and gold.get("pts_1d") and silver.get("pts_1d") else None
@@ -409,6 +519,11 @@ def main():
             else fmt((90 - gs_ratio) / (gs_chg_4w / 4), 0, suffix=" weeks to invalidation") if gs_chg_4w and gs_chg_4w > 0 and gs_ratio and gs_ratio < 90
             else "n/a"
         ) if gs_ratio and gs_chg_4w else "n/a",
+        "cb_gold_ttm":  f"{cb_ttm:+.0f}t" if cb_ttm is not None else "n/a",
+        "cb_gold_prev": f"{cb_prev:.0f}t"  if cb_prev is not None else "n/a",
+        "cb_gold_yoy":  f"{cb_ttm - cb_prev:+.0f}t" if cb_ttm is not None and cb_prev is not None else "n/a",
+        "cb_gold_date": cb_date or "n/a",
+        "cb_gold_lag":  f"{cb_lag}d" if cb_lag is not None else "n/a",
         "lly_px":         fmt(lly_px["price"], 2, prefix="$") if lly_px else "n/a",
         "lly_dd":         _f(lly_px, "dd_52w", suffix="%"),
         "lly_rev":        fmt_bn(lly_c["val"]) if lly_c else "n/a",
@@ -485,6 +600,12 @@ def main():
     lines.append(f"  Silver            {fmt_px(silver)}")
     lines.append(f"  G/S Ratio         {fmt(gs_ratio, 1):<12}  (deploy trigger <55)")
     lines.append(f"  velocity          {facts['gs_chg_1d']} today  |  {facts['gs_chg_4w']} over 4wk  |  {facts['gs_velocity_label']}")
+    if cb_ttm is not None:
+        lines.append(f"  CB Gold demand    {cb_ttm:+.0f}t TTM net  "
+                     f"(vs {cb_prev:.0f}t prior yr  |  {cb_ttm - cb_prev:+.0f}t YoY)  "
+                     f"as of {cb_date}  ({cb_lag}d lag, WGC/IFS monthly)")
+    else:
+        lines.append("  CB Gold demand    n/a  (set WGC_AUTH_* secrets — monthly series)")
     lines.append("")
     lines.append("  CARRY")
     lines.append(f"  {'-'*64}")
