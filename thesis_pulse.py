@@ -552,6 +552,7 @@ INSTRUCTIONS:
 - Price moves alone are never invalidation — always tie to thesis conditions.
 - Only interpret signals where a pre-computed fact is provided above. If no data exists for a criterion, omit it entirely — do not state it is "intact", "not triggered", or "not reported". Absence of data is not a signal.
 - Never reference events, conditions, or risks that are not in the facts above (e.g. do not mention patent challenges, supply surges, policy reversals, competitor actions, ASIC abandonment, contract cancellations, industrial demand, or any other qualitative condition unless a specific fact measuring it is provided).
+- The invalidation checklist is provided for threshold context only — use it to interpret the numbers, not as a checklist to confirm or deny. Do not write sentences of the form "no X data provided" or "no X to trigger invalidation."
 
 OUTPUT FORMAT (use exactly these headers, no deviations):
 
