@@ -192,7 +192,88 @@ def edgar_revenue(ticker):
         return (curr, prev) if curr.get("end","") > curr2.get("end","") else (curr2, prev2)
     return (curr, prev) if curr else (curr2, prev2)
 
-# ── WGC CENTRAL BANK GOLD ──────────────────────────────────
+# ── CENTRAL BANK GOLD (IMF IFS primary, WGC cookie fallback) ───────────────
+def imf_central_bank_gold():
+    """
+    Query IMF IFS series RAFAGOLDV (monthly gold holdings, fine troy oz) for all countries.
+    Computes world net purchase TTM vs prior 12m — same underlying data as WGC.
+    No auth required. Returns (ttm_tonnes, prev_ttm_tonnes, latest_date_str, lag_days).
+    """
+    TROY_OZ_PER_TONNE = 32150.75
+    url = ("http://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/"
+           "IFS/M..RAFAGOLDV?startPeriod=2022-01")
+    try:
+        r = requests.get(url, headers={"User-Agent": "thesis-pulse/1.0"}, timeout=60)
+        if r.status_code != 200:
+            print(f"  IMF gold: status {r.status_code}")
+            return None, None, None, None
+        raw = r.json()
+        series_raw = raw["CompactData"]["DataSet"].get("Series", [])
+        if isinstance(series_raw, dict):
+            series_raw = [series_raw]
+
+        # Build: period → world total troy oz
+        levels = {}  # {country: {period: float}}
+        for s in series_raw:
+            country = s.get("@REF_AREA", "")
+            obs = s.get("Obs", [])
+            if isinstance(obs, dict):
+                obs = [obs]
+            for o in obs:
+                period = o.get("@TIME_PERIOD", "")
+                val_s  = o.get("@OBS_VALUE")
+                if val_s is None:
+                    continue
+                try:
+                    val = float(val_s)
+                except ValueError:
+                    continue
+                levels.setdefault(country, {})[period] = val
+
+        if not levels:
+            return None, None, None, None
+
+        # All periods in ascending order
+        all_periods = sorted(set(p for c in levels.values() for p in c))
+        if len(all_periods) < 14:
+            return None, None, None, None
+
+        # Monthly world net change: sum(level[t] - level[t-1]) across all countries
+        monthly_change = {}
+        for i in range(1, len(all_periods)):
+            t0, t1 = all_periods[i-1], all_periods[i]
+            net = 0.0
+            for cdata in levels.values():
+                v0 = cdata.get(t0)
+                v1 = cdata.get(t1)
+                if v0 is not None and v1 is not None:
+                    net += v1 - v0
+            monthly_change[t1] = net
+
+        periods = sorted(monthly_change)
+        if len(periods) < 13:
+            return None, None, None, None
+
+        ttm_periods  = periods[-12:]
+        prev_periods = periods[-24:-12]
+        latest_date  = ttm_periods[-1]
+
+        ttm_oz  = sum(monthly_change[p] for p in ttm_periods)
+        prev_oz = sum(monthly_change[p] for p in prev_periods) if len(prev_periods) == 12 else None
+
+        ttm_t  = round(ttm_oz  / TROY_OZ_PER_TONNE, 0)
+        prev_t = round(prev_oz / TROY_OZ_PER_TONNE, 0) if prev_oz is not None else None
+
+        from datetime import date as _date
+        lag = (_date.today() - _date.fromisoformat(latest_date + "-01")).days
+
+        return ttm_t, prev_t, latest_date, lag
+
+    except Exception as e:
+        print(f"  IMF gold error: {e}")
+        return None, None, None, None
+
+
 def wgc_central_banks():
     """
     Download WGC monthly central bank gold changes (IFS source, ~2-month lag).
@@ -466,8 +547,11 @@ def main():
     print("Fetching uranium...")
     uranium, uranium_prev, uranium_date = get_uranium()
 
-    print("Fetching WGC central bank gold...")
-    cb_ttm, cb_prev, cb_date, cb_lag = wgc_central_banks()
+    print("Fetching central bank gold (IMF IFS)...")
+    cb_ttm, cb_prev, cb_date, cb_lag = imf_central_bank_gold()
+    if cb_ttm is None:
+        print("  IMF unavailable — trying WGC fallback...")
+        cb_ttm, cb_prev, cb_date, cb_lag = wgc_central_banks()
 
     # Compute
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
