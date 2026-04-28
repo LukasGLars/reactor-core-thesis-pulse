@@ -513,9 +513,6 @@ Your job: assess whether each thesis is intact, weakening, or at a trigger thres
 THESIS DOCUMENT:
 {THESIS_DOC}
 
-INVALIDATION CHECKLIST:
-{INVALIDATION_DOC}
-
 TODAY'S PRE-COMPUTED FACTS ({facts['today']}):
 
 MACRO:
