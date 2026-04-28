@@ -550,9 +550,9 @@ INSTRUCTIONS:
 - Use ONLY the pre-computed facts above. Do not recalculate or restate raw numbers beyond what is given.
 - Be direct and clinical. No filler. Each section max 2-3 sentences.
 - Price moves alone are never invalidation — always tie to thesis conditions.
-- Only interpret signals where a pre-computed fact is provided above. If no data exists for a criterion, omit it entirely — do not state it is "intact", "not triggered", or "not reported". Absence of data is not a signal.
-- Never reference events, conditions, or risks that are not in the facts above (e.g. do not mention patent challenges, supply surges, policy reversals, competitor actions, ASIC abandonment, contract cancellations, industrial demand, or any other qualitative condition unless a specific fact measuring it is provided).
-- The invalidation checklist is provided for threshold context only — use it to interpret the numbers, not as a checklist to confirm or deny. Never write sentences of the form "no X data provided", "no X reported", "no X to trigger invalidation", or any equivalent that references absence of information.
+- Every sentence you write must be directly supported by one of the pre-computed facts listed above. If you cannot point to a specific fact that justifies a sentence, do not write it.
+- The invalidation checklist gives you the thresholds to apply to the facts. It is not a checklist to address — do not work through it, confirm items on it, or reference criteria from it that have no corresponding fact.
+- Write only what the data shows. Do not write what the data does not show.
 
 OUTPUT FORMAT (use exactly these headers, no deviations):
 
