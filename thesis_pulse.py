@@ -200,35 +200,68 @@ def imf_central_bank_gold():
     No auth required. Returns (ttm_tonnes, prev_ttm_tonnes, latest_date_str, lag_days).
     """
     TROY_OZ_PER_TONNE = 32150.75
-    url = ("http://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/"
-           "IFS/M..RAFAGOLDV?startPeriod=2022-01")
+    # Try HTTPS SDMX first, then data.imf.org JSON API
+    candidates = [
+        "https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/IFS/M..RAFAGOLDV?startPeriod=2022-01",
+        "https://data.imf.org/api/SDMX/1.0/rest/data/IFS/M..RAFAGOLDV?startPeriod=2022-01&format=jsondata",
+    ]
+    r = None
+    for url in candidates:
+        try:
+            resp = requests.get(url, headers={"User-Agent": "thesis-pulse/1.0"}, timeout=60)
+            if resp.status_code == 200:
+                r = resp
+                break
+            print(f"  IMF gold: {url[30:70]} -> {resp.status_code}")
+        except Exception as ex:
+            print(f"  IMF gold: {url[30:70]} -> {type(ex).__name__}")
+    if r is None:
+        return None, None, None, None
     try:
-        r = requests.get(url, headers={"User-Agent": "thesis-pulse/1.0"}, timeout=60)
-        if r.status_code != 200:
-            print(f"  IMF gold: status {r.status_code}")
-            return None, None, None, None
         raw = r.json()
-        series_raw = raw["CompactData"]["DataSet"].get("Series", [])
-        if isinstance(series_raw, dict):
-            series_raw = [series_raw]
-
-        # Build: period → world total troy oz
         levels = {}  # {country: {period: float}}
-        for s in series_raw:
-            country = s.get("@REF_AREA", "")
-            obs = s.get("Obs", [])
-            if isinstance(obs, dict):
-                obs = [obs]
-            for o in obs:
-                period = o.get("@TIME_PERIOD", "")
-                val_s  = o.get("@OBS_VALUE")
-                if val_s is None:
-                    continue
-                try:
-                    val = float(val_s)
-                except ValueError:
-                    continue
-                levels.setdefault(country, {})[period] = val
+
+        # Format A: classic SDMX_JSON (dataservices.imf.org)
+        if "CompactData" in raw:
+            series_raw = raw["CompactData"]["DataSet"].get("Series", [])
+            if isinstance(series_raw, dict):
+                series_raw = [series_raw]
+            for s in series_raw:
+                country = s.get("@REF_AREA", "")
+                obs = s.get("Obs", [])
+                if isinstance(obs, dict):
+                    obs = [obs]
+                for o in obs:
+                    period = o.get("@TIME_PERIOD", "")
+                    val_s  = o.get("@OBS_VALUE")
+                    if val_s is None:
+                        continue
+                    try:
+                        levels.setdefault(country, {})[period] = float(val_s)
+                    except ValueError:
+                        pass
+
+        # Format B: SDMX 2.1 jsondata (data.imf.org)
+        elif "data" in raw:
+            ds = raw["data"]
+            # dimensions order: FREQ, REF_AREA, INDICATOR, ...
+            dim_ids = [d["id"] for d in ds.get("structure", {}).get("dimensions", {}).get("series", [])]
+            ref_area_idx = dim_ids.index("REF_AREA") if "REF_AREA" in dim_ids else 1
+            time_periods  = [p["id"] for p in ds.get("structure", {}).get("dimensions", {}).get("observation", [{}])[0].get("values", [])]
+            area_values   = ds.get("structure", {}).get("dimensions", {}).get("series", [{}])[ref_area_idx].get("values", [])
+            for key_str, obs_dict in ds.get("dataSets", [{}])[0].get("series", {}).items():
+                parts = key_str.split(":")
+                area_idx = int(parts[ref_area_idx]) if len(parts) > ref_area_idx else 0
+                country = area_values[area_idx]["id"] if area_idx < len(area_values) else key_str
+                for t_idx_s, val_list in obs_dict.get("observations", {}).items():
+                    t_idx = int(t_idx_s)
+                    val   = val_list[0] if val_list else None
+                    if val is None or t_idx >= len(time_periods):
+                        continue
+                    try:
+                        levels.setdefault(country, {})[time_periods[t_idx]] = float(val)
+                    except (TypeError, ValueError):
+                        pass
 
         if not levels:
             return None, None, None, None
