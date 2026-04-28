@@ -547,9 +547,8 @@ INSTRUCTIONS:
 - Use ONLY the pre-computed facts above. Do not recalculate or restate raw numbers beyond what is given.
 - Be direct and clinical. No filler. Each section max 2-3 sentences.
 - Price moves alone are never invalidation — always tie to thesis conditions.
-- Every sentence you write must be directly supported by one of the pre-computed facts listed above. If you cannot point to a specific fact that justifies a sentence, do not write it.
-- The invalidation checklist gives you the thresholds to apply to the facts. It is not a checklist to address — do not work through it, confirm items on it, or reference criteria from it that have no corresponding fact.
-- Write only what the data shows. Do not write what the data does not show.
+- Write only what the numbered facts above directly show. Every clause must trace back to a specific fact value.
+- Do not comment on conditions, risks, or events that have no corresponding fact — not even to say they are absent, unconfirmed, or not contradicted. If there is no fact for it, it does not appear in your output.
 
 OUTPUT FORMAT (use exactly these headers, no deviations):
 
