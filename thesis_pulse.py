@@ -22,6 +22,9 @@ EMAIL_PASSWORD    = os.environ.get("EMAIL_PASSWORD", "")
 RECIPIENT_EMAIL   = os.environ.get("RECIPIENT_EMAIL", EMAIL_ADDRESS)
 SMTP_SERVER       = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT         = int(os.environ.get("SMTP_PORT", "587"))
+WGC_EMAIL         = os.environ.get("WGC_EMAIL", "")
+WGC_PASSWORD      = os.environ.get("WGC_PASSWORD", "")
+# Legacy cookie fallback (kept for local dev — login is preferred in Actions)
 WGC_API_AUTH      = os.environ.get("WGC_API_AUTH", "")
 WGC_AUTH_COOKIE   = os.environ.get("WGC_AUTH_COOKIE", "")
 WGC_AUTH_SESSION  = os.environ.get("WGC_AUTH_SESSION", "")
@@ -307,15 +310,76 @@ def imf_central_bank_gold():
         return None, None, None, None
 
 
+def _wgc_login():
+    """
+    Log in to user.gold.org and return a requests.Session with auth cookies set.
+    Uses WGC_EMAIL + WGC_PASSWORD env vars (primary) or legacy cookie env vars (fallback).
+    Returns session on success, None on failure.
+    """
+    import re as _re
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124",
+        "Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer":    "https://www.gold.org/",
+    }
+
+    # ── primary: automated login ──────────────────────────────
+    if WGC_EMAIL and WGC_PASSWORD:
+        s = requests.Session()
+        try:
+            # GET login page — captures XSRF-TOKEN + wgcAuth_session
+            r = s.get("https://user.gold.org/login", headers=hdrs, timeout=15)
+            if r.status_code != 200:
+                print(f"  WGC login GET: {r.status_code}")
+                return None
+            token = _re.search(r'name="_token"\s+value="([^"]+)"', r.text)
+            if not token:
+                print("  WGC login: _token not found")
+                return None
+            # POST credentials
+            payload = {
+                "_token":   token.group(1),
+                "ema":      WGC_EMAIL,
+                "password": WGC_PASSWORD,
+                "remember": "1",
+                "log":      "1",
+            }
+            post_hdrs = dict(hdrs)
+            post_hdrs.update({
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer":      "https://user.gold.org/login",
+                "Origin":       "https://user.gold.org",
+            })
+            r2 = s.post("https://user.gold.org/log", data=payload,
+                        headers=post_hdrs, timeout=15, allow_redirects=True)
+            # Success: session now has wgcApiAuth_cookie + wgcAuth_cookie
+            if "wgcApiAuth_cookie" in s.cookies or r2.status_code in (200, 302):
+                print("  WGC login: OK")
+                return s
+            print(f"  WGC login POST: {r2.status_code} — auth cookie not set")
+            return None
+        except Exception as e:
+            print(f"  WGC login error: {e}")
+            return None
+
+    # ── fallback: legacy static cookies ──────────────────────
+    if WGC_AUTH_SESSION:
+        s = requests.Session()
+        s.cookies.set("wgcApiAuth_cookie", WGC_API_AUTH,  domain=".gold.org")
+        s.cookies.set("wgcAuth_cookie",    WGC_AUTH_COOKIE, domain=".gold.org")
+        s.cookies.set("wgcAuth_session",   WGC_AUTH_SESSION, domain=".gold.org")
+        s.cookies.set("XSRF-TOKEN",        WGC_XSRF,      domain=".gold.org")
+        return s
+
+    return None
+
+
 def wgc_central_banks():
     """
     Download WGC monthly central bank gold changes (IFS source, ~2-month lag).
+    Logs in via WGC_EMAIL/WGC_PASSWORD (auto-refresh) or falls back to static cookies.
     Returns (ttm_tonnes, prev_ttm_tonnes, latest_date_str, lag_days).
-    Falls back to (None, None, None, None) if cookies missing or download fails.
-    Env vars: WGC_API_AUTH, WGC_AUTH_COOKIE, WGC_AUTH_SESSION, WGC_XSRF.
     """
-    if not WGC_AUTH_SESSION:
-        return None, None, None, None
     import io
     try:
         import openpyxl
@@ -324,14 +388,12 @@ def wgc_central_banks():
         return None, None, None, None
     from datetime import date as _date
 
+    session = _wgc_login()
+    if session is None:
+        return None, None, None, None
+
     _MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-    cookies = {
-        "wgcApiAuth_cookie": WGC_API_AUTH,
-        "wgcAuth_cookie":    WGC_AUTH_COOKIE,
-        "wgcAuth_session":   WGC_AUTH_SESSION,
-        "XSRF-TOKEN":        WGC_XSRF,
-    }
-    headers = {
+    hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer":    "https://www.gold.org/goldhub/data/gold-reserves-by-country",
         "Accept":     "application/octet-stream,*/*",
@@ -348,7 +410,7 @@ def wgc_central_banks():
         url = (f"https://www.gold.org/download/file/7741/"
                f"Changes_latest_as_of_{_MONTHS[m]}{y}_IFS.xlsx")
         try:
-            r = requests.get(url, cookies=cookies, headers=headers, timeout=30)
+            r = session.get(url, headers=hdrs, timeout=30)
             if r.status_code == 200 and len(r.content) > 50000:
                 content = r.content
                 break
@@ -369,12 +431,11 @@ def wgc_central_banks():
 
         all_rows = list(ws.iter_rows(min_row=9, values_only=True))
 
-        # Find last column that has real data
         last_ci = date_cols[0][0]
         for ci, _ in date_cols:
             has_data = any(
-                isinstance(r[ci], (int, float)) and r[ci] != 0
-                for r in all_rows if len(r) > ci
+                isinstance(row[ci], (int, float)) and row[ci] != 0
+                for row in all_rows if len(row) > ci
             )
             if has_data:
                 last_ci = ci
