@@ -578,7 +578,8 @@ CONVEXITY:
 INSTRUCTIONS:
 - Use ONLY the pre-computed facts above. Do not recalculate or restate raw numbers beyond what is given.
 - Be direct and clinical. No filler. Each section max 2-3 sentences.
-- Oil term spread belongs in CYCLICAL only. Do not reference it in CONVEXITY or any other section.
+- Oil term spread belongs in CYCLICAL only. Do not reference it in CONVEXITY or any other section. You MUST mention it in the CYCLICAL output section.
+- Real yield direction: falling real yield = moving AWAY from 3.0% invalidation = favorable. Rising real yield = moving TOWARD invalidation = unfavorable. Never describe a falling real yield as "approaching invalidation."
 - Price moves alone are never invalidation — always tie to thesis conditions.
 - Write only what the numbered facts above directly show. Every clause must trace back to a specific fact value.
 - Do not comment on conditions, risks, or events that have no corresponding fact — not even to say they are absent, unconfirmed, or not contradicted. If there is no fact for it, it does not appear in your output.
@@ -594,7 +595,7 @@ HEDGES: [2-3 sentences covering gold and silver. Thesis intact? G/S ratio contex
 
 CARRY: [2-3 sentences covering LLY, WMT, JNJ. Revenue trends vs thesis requirements?]
 
-CYCLICAL: [2 sentences. Uranium thesis intact?]
+CYCLICAL: [2-3 sentences. Uranium thesis intact? Include oil term spread signal and its current reading.]
 
 CONVEXITY: [2-3 sentences covering VRT and AVGO. AI capex confirming? Price/fundamental divergence notable?]
 """
