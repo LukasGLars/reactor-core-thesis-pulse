@@ -578,6 +578,7 @@ CONVEXITY:
 INSTRUCTIONS:
 - Use ONLY the pre-computed facts above. Do not recalculate or restate raw numbers beyond what is given.
 - Be direct and clinical. No filler. Each section max 2-3 sentences.
+- Oil term spread belongs in CYCLICAL only. Do not reference it in CONVEXITY or any other section.
 - Price moves alone are never invalidation — always tie to thesis conditions.
 - Write only what the numbered facts above directly show. Every clause must trace back to a specific fact value.
 - Do not comment on conditions, risks, or events that have no corresponding fact — not even to say they are absent, unconfirmed, or not contradicted. If there is no fact for it, it does not appear in your output.
