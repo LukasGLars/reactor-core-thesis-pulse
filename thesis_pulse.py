@@ -475,6 +475,36 @@ def get_uranium():
     val, prev, as_of = fred_latest("PURANUSDM")
     return val, prev, as_of
 
+# ── OIL TERM SPREAD ────────────────────────────────────────
+def get_oil_term_spread():
+    """
+    WTI spot (FRED DCOILWTICO) vs 12-month forward (Yahoo dynamic contract).
+    Positive spread = backwardation = physical supply stress.
+    Thesis signal: spread >$20 STRESS | $10-20 ELEVATED | $0-10 NORMAL | <$0 CONTANGO.
+    """
+    spot, _, spot_date = fred_latest("DCOILWTICO")
+
+    MONTH_CODES = "FGHJKMNQUVXZ"
+    today = date.today()
+    target_month = today.month
+    target_year  = today.year + 1
+    code = MONTH_CODES[target_month - 1]
+    fwd_ticker = f"CL{code}{str(target_year)[2:]}.NYM"
+
+    fwd = None
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{fwd_ticker}?interval=1d&range=5d"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200:
+            closes = r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+            closes = [c for c in closes if c is not None]
+            fwd = closes[-1] if closes else None
+    except Exception:
+        pass
+
+    spread = round(spot - fwd, 2) if spot and fwd else None
+    return spot, fwd, spread, spot_date, fwd_ticker
+
 # ── HELPERS ────────────────────────────────────────────────
 def pct(a, b):
     if a and b and b != 0:
@@ -536,6 +566,8 @@ CARRY:
 CYCLICAL:
 - CCJ: price {facts['ccj_px']} ({facts['ccj_dd']} from 52wH)
 - Uranium: {facts['uranium']} (monthly IMF series, {facts['uranium_lag']}d lag — treat as directional, not spot). Invalidation threshold: <$50/lb — currently ${facts['uranium_dist']:.2f} above.
+- Oil term spread (WTI spot vs 12M forward): {facts['oil_spread']} backwardation | spot {facts['oil_spot']} (as of {facts['oil_spot_date']}) | 12M fwd {facts['oil_fwd']} ({facts['oil_fwd_ticker']}) [{facts['oil_signal']}]
+  Interpretation: spread narrows on physical fall = thesis weakening | spread narrows on futures rise = thesis strengthening | spread stays wide (>$20) = supply stress intact
 
 CONVEXITY:
 - VRT: price {facts['vrt_px']} ({facts['vrt_dd']} from 52wH) | revenue {facts['vrt_rev']} {facts['vrt_rev_yoy']} YoY (as of {facts['vrt_rev_date']})
@@ -641,6 +673,9 @@ def main():
     print("Fetching uranium...")
     uranium, uranium_prev, uranium_date = get_uranium()
 
+    print("Fetching oil term spread...")
+    oil_spot, oil_fwd, oil_spread, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
+
     print("Fetching central bank gold (IMF IFS)...")
     cb_ttm, cb_prev, cb_date, cb_lag = imf_central_bank_gold()
     if cb_ttm is None:
@@ -726,6 +761,17 @@ def main():
             if uranium_date else ""
         ) if uranium else "n/a",
         "uranium_dist":   uranium - 50 if uranium else 0,
+        "oil_spot":       fmt(oil_spot, 1, prefix="$", suffix="/bbl") if oil_spot else "n/a",
+        "oil_fwd":        fmt(oil_fwd,  1, prefix="$", suffix="/bbl") if oil_fwd  else "n/a",
+        "oil_spread":     fmt(oil_spread, 1, suffix="/bbl") if oil_spread is not None else "n/a",
+        "oil_fwd_ticker": oil_fwd_ticker,
+        "oil_spot_date":  oil_spot_date or "n/a",
+        "oil_signal": (
+            "STRESS"    if oil_spread is not None and oil_spread > 20 else
+            "ELEVATED"  if oil_spread is not None and oil_spread > 10 else
+            "NORMAL"    if oil_spread is not None and oil_spread >= 0 else
+            "CONTANGO"  if oil_spread is not None else "n/a"
+        ),
         "vrt_px":         fmt(vrt_px["price"], 2, prefix="$") if vrt_px else "n/a",
         "vrt_dd":         _f(vrt_px, "dd_52w", suffix="%"),
         "vrt_rev":        fmt_bn(vrt_c["val"]) if vrt_c else "n/a",
@@ -814,6 +860,13 @@ def main():
     lines.append(f"  Uranium (IMF/FRED) {fmt(uranium, 2, prefix='$', suffix='/lb') if uranium else 'n/a'}"
                  f"  1m {uranium_mom}"
                  + (f"  (as of {uranium_date}, monthly)" if uranium_date else ""))
+    if oil_spread is not None:
+        lines.append(f"  Oil term spread   ${oil_spread:.1f}/bbl backwardation "
+                     f"(spot ${oil_spot:.1f} as of {oil_spot_date} | "
+                     f"12M fwd ${oil_fwd:.1f} via {oil_fwd_ticker})  [{facts['oil_signal']}]")
+        lines.append( "  (spread >$20 = STRESS | $10-20 = ELEVATED | <$10 = normal | <$0 = contango)")
+    else:
+        lines.append("  Oil term spread   n/a")
     lines.append("")
     lines.append("  CONVEXITY")
     lines.append(f"  {'-'*64}")
