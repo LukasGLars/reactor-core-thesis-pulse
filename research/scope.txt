@@ -1,0 +1,86 @@
+# Project Reactor Core
+
+## Purpose
+
+Build an optimal portfolio from the ground up using historical price data. No thesis first. No opinions. Let Sharpe, Calmar, and total return determine what belongs and at what weight.
+
+If a name earns its place, the data will show it. If it doesn't, it's out.
+
+## Objective
+
+Find the portfolio composition that maximizes risk-adjusted returns across multiple regimes:
+
+1. **Maximize Sharpe ratio** — return per unit of volatility
+2. **Maximize Calmar ratio** — return per unit of max drawdown
+3. **Maximize total return** — absolute compounding power
+4. **Test robustness** — optimal weights must hold across 3Y, 5Y, and 10Y lookback windows, not just the recent regime
+
+## Candidate Universe
+
+44 liquid, USD-denominated tickers across 7 categories:
+
+- **Commodities / Scarcity (10):** gold, silver, oil, copper, Pan American Silver, Exxon Mobil, Chevron, Cameco, Dow Inc, LyondellBasell
+- **Semiconductors / Hardware (12):** NVIDIA, TSMC, ASML, Broadcom, AMD, Lam Research, Qualcomm, Analog Devices, Teradyne, Micron, Lumentum, Corning
+- **Infrastructure / Power (2):** Vertiv, Eaton
+- **Defensive / Value (8):** Berkshire Hathaway, Eli Lilly, J&J, Visa, Mastercard, Walmart, Costco, JP Morgan
+- **China / EM (3):** Alibaba, JD.com, Tencent
+- **Wildcards (3):** Pure Storage, Tesla, Apple
+- **Benchmarks (6):** SMH, ACWI, GLD, SLV, URA, S&P 500
+
+Full ticker list and Stooq download URLs in `stooq_candidate_universe.md`.
+
+## Methodology
+
+### Phase 1: Data Collection
+- Download daily OHLCV from Stooq for all 44 tickers
+- Validate data quality: gaps, splits, sufficient history
+- Align all series to common date range
+- Flag tickers with shorter history
+
+### Phase 2: Individual Analysis
+- Per-asset: annualized return, volatility, Sharpe, max drawdown, Calmar
+- Correlation matrix
+- Identify natural clusters and diversification opportunities
+
+### Phase 3: Portfolio Optimization
+- Mean-variance optimization (max Sharpe)
+- Max Calmar optimization
+- Blended objective: weighted Sharpe + Calmar
+- Constraints: min/max position sizes, sector caps if needed
+- Run across 3Y, 5Y, 10Y windows
+- Compare results across windows — find names that consistently earn their place
+
+### Phase 4: Regime Testing
+- Split history into regime periods: commodity bull/bear, rate hike/cut, credit stress/calm
+- Test optimal weights in each regime
+- Identify regime-dependent vs all-weather names
+
+### Phase 5: Output
+- Optimal portfolio weights with confidence levels
+- Performance metrics: Sharpe, Calmar, total return, max drawdown
+- Sensitivity analysis: how much do weights shift across lookback windows
+- Final composition: what the data says to own
+
+## Constraints
+
+- All data must be liquid and plentiful
+- USD-denominated
+- Practically executable — no positions too small to buy
+- Must survive multiple regimes, not just the current one
+
+## Success Criteria
+
+The optimizer produces a portfolio with demonstrably superior risk-adjusted returns across multiple time windows. If no combination beats simple alternatives, that's an answer too.
+
+The data decides.
+
+## Status
+
+- [x] Candidate universe defined (44 tickers)
+- [x] Stooq download URLs prepared
+- [ ] Data downloaded and validated
+- [ ] Individual asset analysis complete
+- [ ] Correlation matrix built
+- [ ] Optimization runs complete
+- [ ] Regime testing complete
+- [ ] Final output produced

@@ -1,0 +1,27 @@
+assets must add sharpe
+	 ΔSharpe ≥ +0.03
+	Tested across 3Y / 5Y / 10Y, not just one window
+
+correlation impact
+	Does it reduce portfolio volatility per unit return?
+	Does it reduce dominance of your top contributor (gold)?
+	For silver specifically:
+	You want <0.8 correlation to gold
+	If it tracks gold too closely → no real benefit
+	
+role clarity
+Every asset must be exactly one of:
+	Hedge → survives crises (gold)
+	Carry / compounder → stable Sharpe (WMT, COST, LLY)
+	Convexity → explosive upside (TSLA, VRT)
+	Cyclical → macro beta (CCJ)
+	
+improves system
+	Must pass at least 3 of 4:
+	Sharpe ↑
+	Max DD not worse (>2%)
+	Improves ≥4/6 regimes
+	Reduces concentration (gold dependence)
+
+(silver)
+(fx effect)

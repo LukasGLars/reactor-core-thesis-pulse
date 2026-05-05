@@ -1,0 +1,338 @@
+# Reactor Core v3 — Full Backtest Instruction
+
+## Portfolio to Test
+
+| # | Name | Ticker (Yahoo) | Ticker (Platform) | Role | Weight |
+|---|------|----------------|-------------------|------|--------|
+| 1 | Gold | GC=F | xauusd | Hedge | 25.0% |
+| 2 | Eli Lilly | LLY | lly.us | Carry | 15.0% |
+| 3 | Walmart | WMT | wmt.us | Carry | 15.0% |
+| 4 | Silver | SI=F | xagusd | Hedge | 10.0% |
+| 5 | Vertiv | VRT | vrt.us | Convexity | 10.0% |
+| 6 | Cameco | CCJ | ccj.us | Cyclical | 10.0% |
+| 7 | Broadcom | AVGO | avgo.us | Convexity | 8.0% |
+| 8 | J&J | JNJ | jnj.us | Carry | 5.0% |
+
+**Sum: 98%.** Allocate remaining 2% to Cameco (→12%) or split 1% each to Silver and Cameco. Choose one approach and state it. The weights must sum to exactly 100%.
+
+**Changes vs v2:** Costco removed. Silver added at 10%. Lilly 19.7%→15%. Walmart 22.7%→15%. Cameco 5.7%→10%. Vertiv 9%→10%. Broadcom 7.9%→8%. J&J unchanged at 5%. Gold unchanged at 25%.
+
+---
+
+## Data Requirements
+
+- **Price data source:** Yahoo Finance (yfinance). Daily adjusted close prices.
+- **Tickers (Yahoo):** `GC=F`, `SI=F`, `LLY`, `WMT`, `VRT`, `CCJ`, `AVGO`, `JNJ`
+- **Primary date range (in-sample):** 2016-04-01 to 2026-03-31 (10Y)
+- **OOS date range:** 2009-01-01 to 2016-03-31
+- **DCA date range:** 2018-08-31 to 2026-03-31 (all 8 assets have data)
+- **Vertiv IPO:** February 2020 (not 2018 — verify exact first trading date). For any window or test period before Vertiv data exists, exclude Vertiv and normalize remaining weights proportionally. Document the exact Vertiv start date used.
+- **Risk-free rate:** 0% throughout (consistent with v2)
+- **Returns:** Daily log returns for optimization and Sharpe calculations. Simple returns for total return and DCA calculations. Be explicit about which is used where.
+- **FX for DCA:** Use `SEK=X` or `USDSEK=X` from Yahoo Finance for daily USD/SEK rates. All equity prices are USD — convert to SEK for DCA share-purchase calculations. Gold and silver: treat as SEK-native (multiply USD gold/silver price × USD/SEK rate) consistent with v2 methodology.
+- **Dividends:** Excluded. Price returns only, consistent with v2.
+
+**Data validation:** Before running any calculations, verify that all 8 price series are complete (no gaps >5 consecutive trading days). Print the start date, end date, and row count for each ticker. Flag any issues.
+
+---
+
+## Step 1 — Core Performance Metrics
+
+Calculate for **3Y, 5Y, and 10Y** windows ending 2026-03-31.
+
+For **each window**, optimize weights using mean-variance (maximize Sharpe) with constraints, then report metrics at those optimized weights. Also report metrics at the **fixed proposed weights** (the table above) without optimization.
+
+This is important: v2 reported optimized-per-window weights (e.g. J&J was 25.9% in 3Y but 5.0% in 10Y). Do the same here. Report both:
+- **Row A:** Metrics at window-specific optimized weights (optimizer chooses within constraints)
+- **Row B:** Metrics at fixed v3 proposed weights (no optimization)
+
+| Metric | Formula |
+|--------|---------|
+| Ann. Return | `(final_value / initial_value) ^ (252 / n_trading_days) - 1` |
+| Ann. Volatility | `daily_log_returns.std() * sqrt(252)` |
+| Sharpe Ratio | `Ann_Return / Ann_Volatility` (rf = 0) |
+| Max Drawdown | `max peak-to-trough decline on cumulative return series` |
+| Calmar Ratio | `Ann_Return / abs(Max_Drawdown)` |
+| Total Return | `(final_value / initial_value) - 1` |
+
+**Output table columns:** Window | Type (Optimized/Fixed) | Sharpe | Ann Return | Ann Vol | Max DD | Calmar | Total Return
+
+**Include v2 baseline for comparison:** 3Y: Sharpe 2.684, AnnRet 43.92%, MaxDD -28.75%. 5Y: Sharpe 2.033, AnnRet 32.68%, MaxDD -22.74%. 10Y: Sharpe 1.851, AnnRet 30.08%, MaxDD -24.86%.
+
+---
+
+## Step 2 — Individual Asset Metrics
+
+For each of the 8 assets, calculate **standalone** (100% allocation) performance across 3Y, 5Y, 10Y:
+- Annualized return
+- Sharpe ratio (ann return / ann vol, rf=0)
+- Max drawdown
+
+These are individual asset metrics, NOT portfolio contribution metrics.
+
+**Output:** 8 rows (assets) × 9 data columns (3 metrics × 3 windows). Include the Role column for reference.
+
+---
+
+## Step 3 — Regime Analysis
+
+Define 6 regimes (identical to v2):
+
+| Regime | Start | End | Context |
+|--------|-------|-----|---------|
+| Pre-COVID Bull | 2016-04-01 | 2020-02-19 | Steady growth, low vol |
+| COVID Crash | 2020-02-20 | 2020-03-23 | Pandemic selloff |
+| COVID Recovery | 2020-03-24 | 2021-12-31 | Stimulus-driven rally |
+| Rate Hike/Inflation | 2022-01-01 | 2023-06-30 | Fed tightening cycle |
+| Post-Hike/AI Bull | 2023-07-01 | 2024-08-31 | AI capex boom |
+| Rate Cut | 2024-09-01 | 2026-03-31 | Easing cycle + gold run |
+
+For **each individual asset** and the **portfolio** (at fixed v3 weights):
+- Total return in each regime (simple return, start-to-end)
+- Count "wins" = positive return in that regime (X out of 6)
+- Average return across all 6 regimes
+
+**Note:** For Vertiv, the Pre-COVID Bull regime will be partial (only from Vertiv's IPO date onward). Document this. If Vertiv has <30 trading days in a regime, mark it N/A for that regime rather than calculating a misleading return.
+
+**Output table:** Rows = assets + portfolio. Columns = 6 regime returns + Wins + Avg Regime Return. Flag any asset with <4/6 wins.
+
+---
+
+## Step 4 — Gold Cap Sensitivity
+
+Test gold caps at: **10%, 15%, 20%, 25%, 30%, 35%, uncapped**.
+
+Note: v2 tested 15%–uncapped and also included 10% in the stress test. Include 10% here for completeness.
+
+For each cap level:
+1. Run mean-variance optimization (maximize Sharpe) on **10Y window** data with constraints:
+   - Minimum 5% per position
+   - Maximum 40% per position (except gold which uses the cap being tested)
+   - Sum = 100%
+2. Use SLSQP optimizer with **80 random restarts** (randomize initial weight vectors, take best result)
+3. Also run on **3Y and 5Y** windows for the same cap levels
+
+Record per cap level per window: actual gold weight achieved, Sharpe, Ann Return, Max DD, Calmar.
+
+**Output as matrix:** Rows = cap levels (7). Columns grouped by window (3Y/5Y/10Y), each with Sharpe, Gold%, MaxDD, AnnRet.
+
+---
+
+## Step 5 — Floor Position Audit (Leave-One-Out)
+
+For each of the 8 positions:
+1. Remove it from the universe entirely
+2. Re-optimize remaining **7 positions** (constraints: 5% min, 40% max, gold cap 25%, sum=100%) across **3Y, 5Y, 10Y**
+3. Record the optimized Sharpe for each window
+4. Calculate **ΔSharpe** = (Sharpe without this asset) − (Sharpe with all 8 assets) for each window. Positive ΔSharpe means removing it *helped* (bad sign for the asset).
+5. Calculate pairwise **correlation to gold** (daily returns, 10Y)
+6. Calculate pairwise **correlation to full portfolio** (daily returns, 10Y)
+7. Count **regime wins** from Step 3
+
+**Pass criteria** (same as v2):
+- **Sharpe Test:** ΔSharpe ≤ −0.03 in **at least one** window (removing it hurts). Note: v2 header says "all windows" but the actual verdicts used "at least one" — use "at least one" which is the operative standard.
+- **Corr Test:** Correlation to gold < 0.75
+- **Regime Test:** Wins ≥ 4/6
+- **Role Test:** Removing it doesn't eliminate the last position in its role category (Hedge/Carry/Convexity/Cyclical)
+
+**Verdict logic:** KEEP if ≥3/4 criteria pass. REVIEW if 2/4. REJECT if ≤1/4.
+
+**Output:** One row per position. Columns: Ticker, Name, Role, Weight, ΔSharpe 3Y, ΔSharpe 5Y, ΔSharpe 10Y, Corr Gold, Corr Port, Regime Wins, Sharpe Test (PASS/FAIL), Corr Test, Regime Test, Role Test, Verdict.
+
+**Also include baseline row:** "Baseline 10Y Sharpe (all 8 positions): X.XXX | Ann Return: XX.X% | MaxDD: -XX.X% | Calmar: X.XXX"
+
+---
+
+## Step 6 — Gold Stress Test
+
+**Method:** Apply a **permanent level shock** to the gold price series. Multiply the entire gold daily price series by (1 − shock%). This reduces all gold returns proportionally. Do NOT shock silver — they are separate assets. Other assets unchanged.
+
+**Important for v3:** Silver is now 10% of the portfolio and correlated ~0.78 to gold. Add a **Combined Precious Metals Stress** (shock both gold and silver simultaneously). Do both the gold-only stress (for v2 comparability) AND the combined stress (new for v3).
+
+**Gold-only stress (comparable to v2):**
+
+For each shock level (−10%, −20%, −30%, −40%, −50%) × each gold cap level (10%, 15%, 20%, 25%, 30%, 35%):
+- Portfolio weights are the optimized weights for that cap level (from Step 4, 10Y window)
+- Recalculate portfolio total return, Sharpe, Ann Return, Max DD
+- Calculate delta vs unshocked baseline for that cap level
+- Calculate "gold drag" in pp
+
+**Combined precious metals stress (new for v3):**
+
+Same shock levels but applied to BOTH gold and silver simultaneously. Only test at the 25% gold cap level (the one we actually use). This answers: "If the debasement thesis fails and both gold and silver correct hard, how bad is it?"
+
+**Output:**
+1. Gold-only: Total Return matrix (cap × shock) — same format as v2
+2. Gold-only: Sharpe matrix (cap × shock)
+3. Combined: Total Return and Sharpe at 25% gold cap with both metals shocked
+
+---
+
+## Step 7 — Rolling 3Y Optimization (Quarterly Steps)
+
+Starting from the earliest 3Y window where all assets have data, step forward in **quarterly increments** (approximately 63 trading days) through 2026-03-31.
+
+For each window:
+1. Run Sharpe-maximizing optimization on the 3Y trailing window
+2. Constraints: 5% min per position, 40% max per position, **gold cap 25%**, sum=100%
+3. **80 random restarts** per window
+
+Record per window: window end date, gold 3Y total return, gold closing price on window end date, optimal weight for **every** position (all 8), portfolio Sharpe, Ann Return, Max DD.
+
+**Post-processing:**
+- Calculate correlation between optimal gold weight and gold 3Y return across all windows
+- Calculate pre-2020 mean gold weight vs post-2020 mean gold weight
+- Calculate pre-2020 mean silver weight vs post-2020 mean silver weight (new for v3)
+
+**Note on Vertiv:** For windows ending before Vertiv has 3Y of data, exclude Vertiv from that window's optimization and note it. The number of positions per window may vary (7 or 8).
+
+**Output:** One row per quarterly window. Columns: Window End, Gold Ret%, Gold Price, Gold Weight, Silver Weight, Sharpe, AnnRet%, MaxDD%, and weight columns for all 8 positions.
+
+---
+
+## Step 8 — Out-of-Sample Validation
+
+**Purpose:** Test whether the asset selection has structural alpha or is just curve-fitted to the in-sample period.
+
+1. Take the v3 **fixed proposed weights** (not optimized weights — the table at the top)
+2. Exclude Vertiv (not traded before 2020). Normalize remaining 7 weights to sum to 100%. Document the normalized weights explicitly.
+3. Apply those **FIXED normalized weights** to 2010-2016 price data (data the optimizer never saw)
+4. Also test 2009-2016 if all 7 remaining assets have data back to 2009. Verify each asset's earliest available date.
+5. Calculate: Sharpe, Ann Return, Ann Vol, Max DD, Total Return for each OOS period
+6. Calculate **year-by-year** performance for every calendar year in both OOS (2009/2010–2016) and in-sample (2016–2026) periods
+
+**Interpretation thresholds** (same as v2):
+- OOS Sharpe > 1.0 → strong structural alpha
+- OOS Sharpe 0.5–1.0 → partial structural alpha, some curve-fitting
+- OOS Sharpe < 0.5 → mostly curve-fitted
+
+**Output:**
+- Summary table: Period | Positions | Sharpe | Ann Ret | Ann Vol | Max DD | Total Ret (rows for in-sample full, in-sample no-Vertiv, OOS 2010-2016, OOS 2009-2016)
+- Year-by-year table: Year | Period | Sharpe | Ann Ret | Ann Vol | Max DD | Total Ret
+- Weight normalization table: Asset | Original Weight | OOS Weight (normalized) | Change
+
+---
+
+## Step 9 — DCA Simulation
+
+**Parameters:**
+- Starting capital: 1,000,000 SEK
+- Monthly contribution: 6,000 SEK/month
+- Start date: 2018-08-31 (verify all 8 v3 assets have data from this date; Vertiv may not — use its actual first trading date and hold the Vertiv allocation in cash until then, or redistribute temporarily. Document the approach.)
+- End date: 2026-03-31
+- FX: historical daily USD/SEK rates
+- **No rebalancing.** Each month's new contribution is allocated at target weights and converted to whole shares at current prices. Existing holdings drift with the market.
+- Cash remainder from rounding stays as cash
+
+**Run three columns side by side:**
+1. **v2 (8-pos):** Gold 25%, Walmart 22.7%, Lilly 19.7%, Vertiv 9%, Broadcom 7.9%, Cameco 5.7%, J&J 5%, Costco 5%
+2. **v3 (8-pos):** Gold 25%, Lilly 15%, Walmart 15%, Silver 10%, Vertiv 10%, Cameco 10%, Broadcom 8%, J&J 5%
+3. **(Optional) v3 fixed-weight rebalanced monthly** — same v3 weights but rebalanced to target each month. This isolates whether the drift helps or hurts.
+
+**Output:**
+- Yearly comparison: Year | Contributed | v2 Value | v2 Profit | v2 Ret% | v3 Value | v3 Profit | v3 Ret% | Δ (v3 − v2)
+- Monthly detail: same structure, monthly
+- Final summary: total contributed, final values, total profits, CAGR for each
+
+---
+
+## Step 10 — Head-to-Head Comparison vs v2
+
+Single summary table. Fill in v2 values from existing data. Calculate all v3 values from Steps 1–9.
+
+| Metric | v2 (8-pos) | v3 (8-pos) | Δ | Better |
+|--------|-----------|-----------|---|--------|
+| 10Y Sharpe (optimized) | 1.851 | ? | ? | ? |
+| 10Y Sharpe (fixed weights) | — | ? | — | — |
+| 10Y Ann Return | 30.08% | ? | ? | ? |
+| 10Y Volatility | 16.25% | ? | ? | ? |
+| 10Y Max Drawdown | -24.86% | ? | ? | ? |
+| 10Y Calmar | 1.21 | ? | ? | ? |
+| 10Y Total Return | 755.3% | ? | ? | ? |
+| 5Y Sharpe (optimized) | 2.033 | ? | ? | ? |
+| 5Y Ann Return | 32.68% | ? | ? | ? |
+| 3Y Sharpe (optimized) | 2.684 | ? | ? | ? |
+| 3Y Ann Return | 43.92% | ? | ? | ? |
+| OOS Sharpe (2010-2016) | 0.955 | ? | ? | ? |
+| OOS Sharpe (2009-2016) | 1.057 | ? | ? | ? |
+| Portfolio Regime Wins | ?/6 | ?/6 | ? | ? |
+| Gold -40% Sharpe (25% cap) | 1.706 | ? | ? | ? |
+| Gold+Silver -40% Sharpe | N/A | ? | — | — |
+| DCA Final Value (SEK) | 10,469,331 | ? | ? | ? |
+| DCA Total Profit (SEK) | 8,917,331 | ? | ? | ? |
+| Precious Metals Weight | 25.0% | 35.0% | +10pp | — |
+| Carry Weight | 52.4% | 35.0% | -17.4pp | — |
+| Convexity Weight | 16.9% | 18.0% | +1.1pp | — |
+| Cyclical Weight | 5.7% | 10.0% | +4.3pp | — |
+
+**"Better" column:** Mark which version wins each metric. If within 0.5pp or 0.02 Sharpe, mark "≈".
+
+---
+
+## Output Format
+
+Single Excel workbook: `Reactor_Core_v3.xlsx`
+
+Sheets:
+1. **Summary** — v3 description, changes from v2, headline metrics, position descriptions with roles
+2. **Head-to-Head** — Step 10 comparison table
+3. **Core Metrics** — Step 1 (window metrics, optimized and fixed, with v2 comparison)
+4. **Asset Metrics** — Step 2 (individual asset performance)
+5. **Regime Analysis** — Step 3 (regime returns per asset and portfolio)
+6. **Gold Cap Sensitivity** — Step 4 (cap level matrix)
+7. **Floor Position Audit** — Step 5 (leave-one-out with verdicts)
+8. **Gold Stress Test** — Step 6 (gold-only matrices + combined precious metals stress)
+9. **Rolling Gold Weight** — Step 7 (quarterly rolling optimization)
+10. **Out-of-Sample** — Step 8 (OOS validation + year-by-year)
+11. **DCA Comparison** — Step 9 (v2 vs v3 DCA simulation)
+
+---
+
+## Constraints & Standards
+
+**Optimization:**
+- Algorithm: SLSQP (scipy.optimize.minimize)
+- Random restarts: 80 minimum per optimization run
+- Initial weight generation: uniform random on simplex, respecting bounds
+- Position bounds: 5% minimum, 40% maximum per position
+- Gold hard cap: 25% (overrides 40% max — gold can never exceed 25%)
+- Silver: subject to standard 5%–40% bounds (no special cap)
+- Sum of weights: exactly 100%
+
+**Calculations:**
+- Sharpe: annualized return / annualized volatility (risk-free = 0%)
+- Annualized return: geometric (compound), not arithmetic
+- Annualized volatility: daily log return std × √252
+- Max drawdown: calculated on cumulative daily return series, not monthly
+- All returns: price only (no dividends), consistent with v2
+- Portfolio return: weighted sum of individual daily log returns
+
+**Data handling:**
+- When Vertiv data unavailable: exclude and normalize remaining weights. Document every instance.
+- Missing data: forward-fill up to 5 days. If gap >5 days, flag and document.
+- Weekend/holiday alignment: use inner join on trading dates across all assets
+
+**Formatting:**
+- Percentages: 1 decimal (e.g., 30.1%)
+- Sharpe: 3 decimals (e.g., 1.851)
+- Basis point deltas: "+X.Xpp" or "−X.Xpp"
+- Currency: no decimals, thousands separator (e.g., 10,469,331 kr)
+- Clearly label every table with what it shows, the date range, and any exclusions
+
+---
+
+## Verification Checklist (run before finalizing)
+
+- [ ] All 8 tickers download successfully with no gaps
+- [ ] Weights sum to exactly 100%
+- [ ] Vertiv exclusion is handled consistently everywhere it appears
+- [ ] v2 baseline numbers match: 10Y Sharpe 1.851, AnnRet 30.08%, MaxDD -24.86%
+- [ ] Gold never exceeds 25% in any optimization output
+- [ ] No position below 5% in any optimization output
+- [ ] OOS uses FIXED weights, not re-optimized weights
+- [ ] DCA uses SEK prices (USD × FX rate), not raw USD
+- [ ] All regime date boundaries match the table exactly
+- [ ] Gold stress test shocks gold only (not silver) for v2-comparable section
+- [ ] Combined stress test shocks both gold and silver
+- [ ] Every output sheet is present in the workbook
+- [ ] Re-run v2 portfolio with the same code to verify it reproduces the known v2 metrics as a sanity check
