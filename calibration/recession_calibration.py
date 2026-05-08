@@ -374,43 +374,67 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
     for rs, re in rec_cycles:
         print(f"  {rs.strftime('%Y-%m-%d')} to {re.strftime('%Y-%m-%d')}")
 
+    composite_rows  = [r for r in rows if r["composite"]]
+    monitoring_rows = [r for r in rows if not r["composite"]]
+    hdr = f"{'Series':<16} {'Signal':<12} {'Threshold':<13} {'Lead Time':<13} {'Hit Rate':<12} {'FP Rate':<11} Confidence"
+
     print()
-    print("INDICATOR RESULTS")
+    print("INDICATOR RESULTS — COMPOSITE SET (FP ≤ 40%)")
     print("-" * 68)
-    print(f"{'Series':<16} {'Signal':<12} {'Threshold':<13} {'Lead Time':<13} {'Hit Rate':<12} {'FP Rate':<11} Confidence")
+    if composite_rows:
+        print(hdr)
+        print("-" * 68)
+        for r in composite_rows:
+            print(f"{r['series']:<16} {r['signal']:<12} {r['threshold']:<13} {r['lead']:<13} {r['hit_rate']:<12} {r['fp_rate']:<11} {r['conf']}")
+    else:
+        print("  NO indicators pass FP ≤ 40% filter — composite is empty.")
+        print(f"  Best available: {min(rows, key=lambda x: float(x['fp_rate'].rstrip('%')))['series']} "
+              f"at {min(rows, key=lambda x: float(x['fp_rate'].rstrip('%')))['fp_rate']} FP")
+        print("  Consider raising the FP threshold to include leading indicators.")
+
+    print()
+    print("INDICATOR RESULTS — MONITORING ONLY (FP > 40%)")
     print("-" * 68)
-    for r in rows:
-        print(f"{r['series']:<16} {r['signal']:<12} {r['threshold']:<13} {r['lead']:<13} {r['hit_rate']:<12} {r['fp_rate']:<11} {r['conf']}")
+    if monitoring_rows:
+        print(hdr)
+        print("-" * 68)
+        for r in monitoring_rows:
+            print(f"{r['series']:<16} {r['signal']:<12} {r['threshold']:<13} {r['lead']:<13} {r['hit_rate']:<12} {r['fp_rate']:<11} MONITORING ONLY")
 
     print()
     print("SIGNAL QUALITY RANKING")
     print("-" * 68)
-    print(f"{'Rank':<8} {'Series':<16} {'Composite Score':<19} Primary Value")
+    print(f"{'Rank':<8} {'Series':<16} {'Composite Score':<19} {'Status':<18} Primary Value")
     print("-" * 68)
     ranked = sorted(rows, key=lambda x: x["score"], reverse=True)
     for i, r in enumerate(ranked, 1):
-        print(f"{i:<8} {r['series']:<16} {r['score']:.3f}              {r['hit_rate']} — lead {r['lead']}")
+        status = "COMPOSITE" if r["composite"] else "monitoring"
+        print(f"{i:<8} {r['series']:<16} {r['score']:.3f}              {status:<18} {r['hit_rate']} — lead {r['lead']}")
 
     print()
     print("COMPOSITE SCORE CALIBRATION")
     print("-" * 68)
-    for n, vals in sorted(comp_probs.items()):
-        if n == 0:
-            continue
-        print(f"{n} indicator{'s' if n != 1 else ''} simultaneously at threshold:")
-        print(f"  {vals['p6']}% probability recession within 6 months")
-        print(f"  {vals['p12']}% probability recession within 12 months")
-        print(f"  Based on {vals['months']} historical months")
-        print()
+    if not comp_probs or not composite_rows:
+        print("  No composite calibration — zero indicators in composite set.")
+    else:
+        for n, vals in sorted(comp_probs.items()):
+            if n == 0:
+                continue
+            print(f"{n} indicator{'s' if n != 1 else ''} simultaneously at threshold:")
+            print(f"  {vals['p6']}% probability recession within 6 months")
+            print(f"  {vals['p12']}% probability recession within 12 months")
+            print(f"  Based on {vals['months']} historical months")
+            print()
 
     # Live state
     print()
     print("LIVE SIGNAL STATE")
     print("-" * 80)
-    print(f"{'Series':<16} {'Live Value':<24} {'Threshold':<14} Firing")
+    print(f"{'Series':<16} {'Live Value':<24} {'Threshold':<14} {'Firing':<8} Set")
     print("-" * 80)
 
-    firing_count = 0
+    composite_firing = 0
+    total_firing = 0
     for r in rows:
         live_val, as_of = get_live_value(r, data)
         firing = live_firing(r, signals)
@@ -418,14 +442,22 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
             flag = "N/A"
         elif firing:
             flag = "YES"
-            firing_count += 1
+            total_firing += 1
+            if r["composite"]:
+                composite_firing += 1
         else:
             flag = "NO"
-        print(f"{r['series']:<16} {live_val:<24} {r['threshold']:<14} {flag}")
+        set_label = "composite" if r["composite"] else "monitoring"
+        print(f"{r['series']:<16} {live_val:<24} {r['threshold']:<14} {flag:<8} {set_label}")
 
+    n_composite = len(composite_rows)
     print("-" * 80)
-    print(f"LIVE STATE: {firing_count}/{len(rows)} indicators at threshold")
-    print(f"RECESSION PROBABILITY: {regime_label(firing_count)}")
+    if composite_rows:
+        print(f"COMPOSITE LIVE STATE: {composite_firing}/{n_composite} composite indicators at threshold")
+        print(f"RECESSION PROBABILITY: {regime_label(composite_firing)}")
+    else:
+        print(f"COMPOSITE LIVE STATE: N/A — no indicators in composite set")
+        print(f"ALL INDICATORS: {total_firing}/{len(rows)} at threshold (monitoring only)")
     print()
     print("=" * 68)
 
@@ -448,12 +480,14 @@ def main():
 
     def add(series_id, sig_type, sig_kind, threshold_val, threshold_str, sig, lead, hits, total, fp):
         hr = hits / total if total else 0
+        in_composite = fp <= 40
         rows.append({
             "series": series_id, "signal": sig_type, "threshold": threshold_str,
             "sig_kind": sig_kind, "threshold_val": threshold_val,
             "lead": f"{lead} months", "hit_rate": f"{hits}/{total}",
             "fp_rate": f"{fp:.0f}%", "conf": confidence_level(hr, fp),
             "score": hr * (1 - fp / 100),
+            "composite": in_composite,
         })
         if sig is not None:
             signals[series_id] = sig
@@ -556,7 +590,9 @@ def main():
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("CREDIT_SPREAD", "level", "level_above", th, f">{th:.2f}%", sig, l, h, t, fp)
 
-    comp_probs = composite_probability(signals, rec_cycles)
+    composite_signals = {r["series"]: signals[r["series"]]
+                         for r in rows if r["composite"] and r["series"] in signals}
+    comp_probs = composite_probability(composite_signals, rec_cycles)
     print_report(rows, rec_cycles, data, signals, comp_probs)
 
 
