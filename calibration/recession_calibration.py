@@ -114,7 +114,7 @@ def load_all():
     try:
         r = requests.get("https://multpl.com/shiller-pe/table/by-month",
                          timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-        tables = pd.read_html(r.text)
+        tables = pd.read_html(io.StringIO(r.text))
         df = tables[0].copy()
         df.columns = ["date", "value"]
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
