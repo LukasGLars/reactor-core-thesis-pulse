@@ -379,7 +379,7 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
     hdr = f"{'Series':<16} {'Signal':<12} {'Threshold':<13} {'Lead Time':<13} {'Hit Rate':<12} {'FP Rate':<11} Confidence"
 
     print()
-    print("INDICATOR RESULTS — COMPOSITE SET (FP ≤ 40%)")
+    print("INDICATOR RESULTS — COMPOSITE SET (FP <= 40%)")
     print("-" * 68)
     if composite_rows:
         print(hdr)
