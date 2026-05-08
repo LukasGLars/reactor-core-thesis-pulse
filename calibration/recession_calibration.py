@@ -3,7 +3,9 @@ calibration/recession_calibration.py
 Recession indicator calibration pipeline. Print report only. No files saved.
 """
 
+import contextlib
 import io
+import json
 import os
 import time
 import warnings
@@ -379,7 +381,7 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
     hdr = f"{'Series':<16} {'Signal':<12} {'Threshold':<13} {'Lead Time':<13} {'Hit Rate':<12} {'FP Rate':<11} Confidence"
 
     print()
-    print("INDICATOR RESULTS -- COMPOSITE SET (FP <= 40%)")
+    print("INDICATOR RESULTS -- COMPOSITE SET (all 13 indicators)")
     print("-" * 68)
     if composite_rows:
         print(hdr)
@@ -391,15 +393,6 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
         print(f"  Best available: {min(rows, key=lambda x: float(x['fp_rate'].rstrip('%')))['series']} "
               f"at {min(rows, key=lambda x: float(x['fp_rate'].rstrip('%')))['fp_rate']} FP")
         print("  Consider raising the FP threshold to include leading indicators.")
-
-    print()
-    print("INDICATOR RESULTS -- MONITORING ONLY (FP > 40%)")
-    print("-" * 68)
-    if monitoring_rows:
-        print(hdr)
-        print("-" * 68)
-        for r in monitoring_rows:
-            print(f"{r['series']:<16} {r['signal']:<12} {r['threshold']:<13} {r['lead']:<13} {r['hit_rate']:<12} {r['fp_rate']:<11} MONITORING ONLY")
 
     print()
     print("SIGNAL QUALITY RANKING")
@@ -593,7 +586,57 @@ def main():
     composite_signals = {r["series"]: signals[r["series"]]
                          for r in rows if r["composite"] and r["series"] in signals}
     comp_probs = composite_probability(composite_signals, rec_cycles)
-    print_report(rows, rec_cycles, data, signals, comp_probs)
+
+    # Capture report output for file saving
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_report(rows, rec_cycles, data, signals, comp_probs)
+    report_text = buf.getvalue()
+    print(report_text, end="")
+
+    # Save files
+    out_dir = Path(__file__).parent
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    # recession_config.json
+    config = {
+        "calibrated": now_str,
+        "recession_cycles_analyzed": len(rec_cycles),
+        "regime_thresholds": {
+            "background_noise": {"label": "BACKGROUND NOISE", "max_signals": 4},
+            "elevated":         {"label": "ELEVATED -- regime shift risk rising", "min_signals": 5, "max_signals": 6},
+            "high":             {"label": "HIGH -- reassess positioning", "min_signals": 7},
+        },
+        "indicators": {
+            r["series"]: {
+                "signal":      r["signal"],
+                "sig_kind":    r["sig_kind"],
+                "threshold":   r["threshold"],
+                "threshold_val": r["threshold_val"],
+                "lead_months": r["lead"],
+                "hit_rate":    r["hit_rate"],
+                "fp_rate":     r["fp_rate"],
+                "composite_score": round(r["score"], 4),
+            }
+            for r in rows
+        },
+        "composite_probabilities": {
+            str(n): {"p6m": v["p6"], "p12m": v["p12"], "sample_months": v["months"]}
+            for n, v in comp_probs.items()
+        },
+    }
+    config_path = out_dir / "recession_config.json"
+    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    # Calibration report txt
+    report_path = out_dir / "recession_calibration_report.txt"
+    report_path.write_text(report_text, encoding="utf-8")
+
+    print()
+    print("FILES SAVED")
+    print("-" * 68)
+    print(f"  {config_path}")
+    print(f"  {report_path}")
 
 
 if __name__ == "__main__":
