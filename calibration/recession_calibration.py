@@ -88,7 +88,7 @@ def load_all():
         for f in failed:
             print(f"    {f}")
 
-    # SP500 — try primary, fall back to total return index
+    # SP500 -- try primary, fall back to total return index
     for sid in ["SP500", "SPASTT01USM661N"]:
         try:
             s = to_monthly(fetch_fred_api(sid, obs_start="1956-01-01"), method="last")
@@ -98,7 +98,7 @@ def load_all():
         except Exception:
             continue
 
-    # Credit spread — BAA minus AAA
+    # Credit spread -- BAA minus AAA
     try:
         baa = to_monthly(fetch_fred_csv(
             "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAA&observation_start=1919-01-01"))
@@ -110,7 +110,7 @@ def load_all():
     except Exception:
         data["CREDIT_SPREAD"] = None
 
-    # CAPE — multpl.com
+    # CAPE -- multpl.com
     try:
         r = requests.get("https://multpl.com/shiller-pe/table/by-month",
                          timeout=20, headers={"User-Agent": "Mozilla/5.0"})
@@ -290,7 +290,7 @@ def get_live_value(row, data):
     sig_kind = row["sig_kind"]
     th       = row["threshold_val"]
 
-    # CREDIT_SPREAD is derived — use BAA-AAA from data
+    # CREDIT_SPREAD is derived -- use BAA-AAA from data
     series = data.get(sid)
     if series is None or series.empty:
         return "N/A", "N/A"
@@ -350,9 +350,9 @@ def live_firing(row, signals):
 
 def regime_label(n_firing):
     if n_firing >= 7:
-        return "HIGH — reassess positioning"
+        return "HIGH -- reassess positioning"
     if n_firing >= 5:
-        return "ELEVATED — regime shift risk rising"
+        return "ELEVATED -- regime shift risk rising"
     return "BACKGROUND NOISE"
 
 
@@ -379,7 +379,7 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
     hdr = f"{'Series':<16} {'Signal':<12} {'Threshold':<13} {'Lead Time':<13} {'Hit Rate':<12} {'FP Rate':<11} Confidence"
 
     print()
-    print("INDICATOR RESULTS — COMPOSITE SET (FP <= 40%)")
+    print("INDICATOR RESULTS -- COMPOSITE SET (FP <= 40%)")
     print("-" * 68)
     if composite_rows:
         print(hdr)
@@ -387,13 +387,13 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
         for r in composite_rows:
             print(f"{r['series']:<16} {r['signal']:<12} {r['threshold']:<13} {r['lead']:<13} {r['hit_rate']:<12} {r['fp_rate']:<11} {r['conf']}")
     else:
-        print("  NO indicators pass FP ≤ 40% filter — composite is empty.")
+        print("  NO indicators pass FP <= 40% filter -- composite is empty.")
         print(f"  Best available: {min(rows, key=lambda x: float(x['fp_rate'].rstrip('%')))['series']} "
               f"at {min(rows, key=lambda x: float(x['fp_rate'].rstrip('%')))['fp_rate']} FP")
         print("  Consider raising the FP threshold to include leading indicators.")
 
     print()
-    print("INDICATOR RESULTS — MONITORING ONLY (FP > 40%)")
+    print("INDICATOR RESULTS -- MONITORING ONLY (FP > 40%)")
     print("-" * 68)
     if monitoring_rows:
         print(hdr)
@@ -409,13 +409,13 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
     ranked = sorted(rows, key=lambda x: x["score"], reverse=True)
     for i, r in enumerate(ranked, 1):
         status = "COMPOSITE" if r["composite"] else "monitoring"
-        print(f"{i:<8} {r['series']:<16} {r['score']:.3f}              {status:<18} {r['hit_rate']} — lead {r['lead']}")
+        print(f"{i:<8} {r['series']:<16} {r['score']:.3f}              {status:<18} {r['hit_rate']} -- lead {r['lead']}")
 
     print()
     print("COMPOSITE SCORE CALIBRATION")
     print("-" * 68)
     if not comp_probs or not composite_rows:
-        print("  No composite calibration — zero indicators in composite set.")
+        print("  No composite calibration -- zero indicators in composite set.")
     else:
         for n, vals in sorted(comp_probs.items()):
             if n == 0:
@@ -456,7 +456,7 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
         print(f"COMPOSITE LIVE STATE: {composite_firing}/{n_composite} composite indicators at threshold")
         print(f"RECESSION PROBABILITY: {regime_label(composite_firing)}")
     else:
-        print(f"COMPOSITE LIVE STATE: N/A — no indicators in composite set")
+        print(f"COMPOSITE LIVE STATE: N/A -- no indicators in composite set")
         print(f"ALL INDICATORS: {total_firing}/{len(rows)} at threshold (monitoring only)")
     print()
     print("=" * 68)
