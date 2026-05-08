@@ -282,6 +282,80 @@ def composite_probability(signals_dict, rec_cycles, h6=6, h12=12):
     return results
 
 
+# ── Live state ─────────────────────────────────────────────
+
+def get_live_value(row, data):
+    """Return (live_value_str, as_of_date_str) for the most recent observation."""
+    sid      = row["series"]
+    sig_kind = row["sig_kind"]
+    th       = row["threshold_val"]
+
+    # CREDIT_SPREAD is derived — use BAA-AAA from data
+    series = data.get(sid)
+    if series is None or series.empty:
+        return "N/A", "N/A"
+
+    s      = series.dropna()
+    last   = s.iloc[-1]
+    as_of  = s.index[-1].strftime("%Y-%m-%d")
+
+    if sig_kind == "crossing_below_zero":
+        return f"{last:+.2f}%", as_of
+
+    if sig_kind == "level_above":
+        if sid == "ICSA":
+            return f"{last/1000:.0f}k", as_of
+        if sid in ("CREDIT_SPREAD", "DFII10"):
+            return f"{last:.2f}%", as_of
+        if sid == "VIXCLS":
+            return f"{last:.1f}", as_of
+        if sid == "CAPE":
+            return f"{last:.1f}", as_of
+        return f"{last:.2f}%", as_of
+
+    if sig_kind == "level_below":
+        return f"{last:.1f}", as_of
+
+    if sig_kind == "sp500_below_ma":
+        ma = s.rolling(10).mean().dropna().iloc[-1]
+        pct = (last - ma) / ma * 100
+        return f"{pct:+.1f}% vs 10mo MA", as_of
+
+    if sig_kind == "consecutive_decline":
+        mom = s.diff().dropna()
+        neg = int((mom.iloc[-3:] < 0).sum())
+        return f"{neg}/3 months declining", as_of
+
+    if sig_kind == "yoy_change_above":
+        yoy = s.pct_change(12).dropna().iloc[-1] * 100
+        return f"{yoy:.1f}% YoY", as_of
+
+    if sig_kind == "fed_cutting":
+        diff  = s.diff().dropna()
+        cuts  = int((diff.iloc[-3:] < 0).sum())
+        return f"{last:.2f}% ({cuts}/3mo cutting)", as_of
+
+    return f"{last:.2f}", as_of
+
+
+def live_firing(row, signals):
+    sig = signals.get(row["series"])
+    if sig is None or sig.empty:
+        return None
+    last = sig.dropna()
+    if last.empty:
+        return None
+    return bool(last.iloc[-1])
+
+
+def regime_label(n_firing):
+    if n_firing >= 7:
+        return "HIGH — reassess positioning"
+    if n_firing >= 5:
+        return "ELEVATED — regime shift risk rising"
+    return "BACKGROUND NOISE"
+
+
 # ── Report ─────────────────────────────────────────────────
 
 def print_report(rows, rec_cycles, data, signals, comp_probs):
@@ -329,6 +403,30 @@ def print_report(rows, rec_cycles, data, signals, comp_probs):
         print(f"  Based on {vals['months']} historical months")
         print()
 
+    # Live state
+    print()
+    print("LIVE SIGNAL STATE")
+    print("-" * 80)
+    print(f"{'Series':<16} {'Live Value':<24} {'Threshold':<14} Firing")
+    print("-" * 80)
+
+    firing_count = 0
+    for r in rows:
+        live_val, as_of = get_live_value(r, data)
+        firing = live_firing(r, signals)
+        if firing is None:
+            flag = "N/A"
+        elif firing:
+            flag = "YES"
+            firing_count += 1
+        else:
+            flag = "NO"
+        print(f"{r['series']:<16} {live_val:<24} {r['threshold']:<14} {flag}")
+
+    print("-" * 80)
+    print(f"LIVE STATE: {firing_count}/{len(rows)} indicators at threshold")
+    print(f"RECESSION PROBABILITY: {regime_label(firing_count)}")
+    print()
     print("=" * 68)
 
 
@@ -348,10 +446,11 @@ def main():
     rows = []
     signals = {}
 
-    def add(series_id, sig_type, sig_kind, threshold_str, sig, lead, hits, total, fp):
+    def add(series_id, sig_type, sig_kind, threshold_val, threshold_str, sig, lead, hits, total, fp):
         hr = hits / total if total else 0
         rows.append({
             "series": series_id, "signal": sig_type, "threshold": threshold_str,
+            "sig_kind": sig_kind, "threshold_val": threshold_val,
             "lead": f"{lead} months", "hit_rate": f"{hits}/{total}",
             "fp_rate": f"{fp:.0f}%", "conf": confidence_level(hr, fp),
             "score": hr * (1 - fp / 100),
@@ -364,14 +463,14 @@ def main():
     if s is not None:
         sig = gen_signal(s, "crossing_below_zero")
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("T10Y3M", "crossing", None, "<0%", sig, l, h, t, fp)
+        add("T10Y3M", "crossing", "crossing_below_zero", 0, "<0%", sig, l, h, t, fp)
 
     # T10Y2Y
     s = data.get("T10Y2Y")
     if s is not None:
         sig = gen_signal(s, "crossing_below_zero")
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("T10Y2Y", "crossing", None, "<0%", sig, l, h, t, fp)
+        add("T10Y2Y", "crossing", "crossing_below_zero", 0, "<0%", sig, l, h, t, fp)
 
     # DFII10
     s = data.get("DFII10")
@@ -379,16 +478,15 @@ def main():
         th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25))
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("DFII10", "level", None, f">{th:.1f}%", sig, l, h, t, fp)
+        add("DFII10", "level", "level_above", th, f">{th:.1f}%", sig, l, h, t, fp)
 
     # ICSA
     s = data.get("ICSA")
     if s is not None:
-        th = optimize_threshold(s, "level_above", rec_cycles,
-                                np.arange(200000, 600000, 25000))
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(200000, 600000, 25000))
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("ICSA", "level", None, f">{th/1000:.0f}k", sig, l, h, t, fp)
+        add("ICSA", "level", "level_above", th, f">{th/1000:.0f}k", sig, l, h, t, fp)
 
     # UMCSENT
     s = data.get("UMCSENT")
@@ -396,43 +494,43 @@ def main():
         th = optimize_threshold(s, "level_below", rec_cycles, np.arange(60, 91, 5))
         sig = gen_signal(s, "level_below", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("UMCSENT", "level", None, f"<{th:.0f}", sig, l, h, t, fp)
+        add("UMCSENT", "level", "level_below", th, f"<{th:.0f}", sig, l, h, t, fp)
 
     # INDPRO
     s = data.get("INDPRO")
     if s is not None:
         sig = gen_signal(s, "consecutive_decline", n=3)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("INDPRO", "direction", None, "3mo decline", sig, l, h, t, fp)
+        add("INDPRO", "direction", "consecutive_decline", None, "3mo decline", sig, l, h, t, fp)
 
     # MANEMP
     s = data.get("MANEMP")
     if s is not None:
         sig = gen_signal(s, "consecutive_decline", n=3)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("MANEMP", "direction", None, "3mo decline", sig, l, h, t, fp)
+        add("MANEMP", "direction", "consecutive_decline", None, "3mo decline", sig, l, h, t, fp)
 
-    # PCEPILFE — YoY change above threshold (elevated inflation → Fed hiking → recession)
+    # PCEPILFE
     s = data.get("PCEPILFE")
     if s is not None:
         th = optimize_threshold(s, "yoy_change_above", rec_cycles, np.arange(1.0, 5.5, 0.5))
         sig = gen_signal(s, "yoy_change_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("PCEPILFE", "direction", None, f">{th:.1f}% YoY", sig, l, h, t, fp)
+        add("PCEPILFE", "direction", "yoy_change_above", th, f">{th:.1f}% YoY", sig, l, h, t, fp)
 
-    # DFF — Fed cutting cycle
+    # DFF
     s = data.get("DFF")
     if s is not None:
         sig = gen_signal(s, "fed_cutting", n=3)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("DFF", "direction", None, "cutting 3mo", sig, l, h, t, fp)
+        add("DFF", "direction", "fed_cutting", None, "cutting 3mo", sig, l, h, t, fp)
 
-    # SP500 below 10-month MA
+    # SP500
     s = data.get("SP500")
     if s is not None:
         sig = gen_signal(s, "sp500_below_ma", window=10)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("SP500", "level", None, "< 10mo MA", sig, l, h, t, fp)
+        add("SP500", "level", "sp500_below_ma", None, "< 10mo MA", sig, l, h, t, fp)
 
     # VIXCLS
     s = data.get("VIXCLS")
@@ -440,7 +538,7 @@ def main():
         th = optimize_threshold(s, "level_above", rec_cycles, np.arange(15, 45, 5))
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("VIXCLS", "level", None, f">{th:.0f}", sig, l, h, t, fp)
+        add("VIXCLS", "level", "level_above", th, f">{th:.0f}", sig, l, h, t, fp)
 
     # CAPE
     s = data.get("CAPE")
@@ -448,7 +546,7 @@ def main():
         th = optimize_threshold(s, "level_above", rec_cycles, np.arange(20, 45, 5))
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("CAPE", "level", None, f">{th:.0f}", sig, l, h, t, fp)
+        add("CAPE", "level", "level_above", th, f">{th:.0f}", sig, l, h, t, fp)
 
     # CREDIT_SPREAD
     s = data.get("CREDIT_SPREAD")
@@ -456,7 +554,7 @@ def main():
         th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25))
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
-        add("CREDIT_SPREAD", "level", None, f">{th:.2f}%", sig, l, h, t, fp)
+        add("CREDIT_SPREAD", "level", "level_above", th, f">{th:.2f}%", sig, l, h, t, fp)
 
     comp_probs = composite_probability(signals, rec_cycles)
     print_report(rows, rec_cycles, data, signals, comp_probs)
