@@ -1,70 +1,43 @@
 """
 calibration/recession_calibration.py
-
-Data availability validation for recession indicator calibration pipeline.
-Fetches all sources and prints a report. No analysis, no files saved.
+Recession indicator calibration pipeline. Print report only. No files saved.
 """
 
 import io
 import os
 import warnings
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
-
 warnings.filterwarnings("ignore")
 
-FRED_API_KEY = os.getenv("FRED_API_KEY", "")
-
-# (series_id, observation_start, note)
-FRED_SERIES = [
-    ("USREC",    None,  "NBER recession indicator"),
-    ("T10Y3M",   None,  ""),
-    ("T10Y2Y",   None,  ""),
-    ("DFII10",   None,  ""),
-    ("ICSA",     None,  ""),
-    ("UMCSENT",  None,  ""),
-    ("INDPRO",   None,  ""),
-    ("MANEMP",   None,  "ISM PMI unavailable via FRED CSV — using manufacturing employment as proxy"),
-    ("PCEPILFE", None,  ""),
-    ("DFF",      None,  ""),
-]
-
-BAA_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAA&observation_start=1919-01-01"
-AAA_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=AAA&observation_start=1919-01-01"
-
-CAPE_URL = "https://multpl.com/shiller-pe/table/by-month"
+API_KEY = os.getenv("FRED_API_KEY", "")
 
 
-# ── Fetch helpers ──────────────────────────────────────────
+# ── Data fetching ──────────────────────────────────────────
 
-def fetch_fred(series_id, observation_start=None):
-    if not FRED_API_KEY:
-        raise ValueError("FRED_API_KEY not set")
+def fetch_fred_api(series_id, obs_start=None):
     url = (
-        "https://api.stlouisfed.org/fred/series/observations"
-        f"?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
+        f"https://api.stlouisfed.org/fred/series/observations"
+        f"?series_id={series_id}&api_key={API_KEY}&file_type=json"
+        + (f"&observation_start={obs_start}" if obs_start else "")
     )
-    if observation_start:
-        url += f"&observation_start={observation_start}"
     r = requests.get(url, timeout=20)
     r.raise_for_status()
     data = r.json()
     if "observations" not in data:
-        raise ValueError(data.get("error_message", "no observations key"))
+        raise ValueError(data.get("error_message", "no observations"))
     df = pd.DataFrame(data["observations"])[["date", "value"]]
     df["date"] = pd.to_datetime(df["date"])
     df = df[df["value"] != "."]
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df = df.dropna(subset=["value"])
-    if df.empty:
-        raise ValueError("empty after cleaning")
-    return df
+    return df.dropna().set_index("date")["value"]
 
 
 def fetch_fred_csv(url):
@@ -74,118 +47,401 @@ def fetch_fred_csv(url):
     df.columns = ["date", "value"]
     df = df[df["value"] != "."]
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df = df.dropna(subset=["value"])
-    if df.empty:
-        raise ValueError("empty after cleaning")
-    return df.set_index("date")
+    return df.dropna().set_index("date")["value"]
 
 
-def fetch_sp500():
+def to_monthly(series, method="last"):
+    if method == "mean":
+        return series.resample("ME").mean()
+    return series.resample("ME").last()
+
+
+def load_all():
+    data = {}
+
+    mean_series = {"T10Y3M", "T10Y2Y", "DFF", "DFII10", "VIXCLS"}
+    fred_series = ["USREC", "T10Y3M", "T10Y2Y", "DFII10", "ICSA",
+                   "UMCSENT", "INDPRO", "MANEMP", "PCEPILFE", "DFF", "VIXCLS"]
+
+    for sid in fred_series:
+        try:
+            method = "mean" if sid in mean_series else "last"
+            data[sid] = to_monthly(fetch_fred_api(sid), method=method)
+        except Exception as e:
+            data[sid] = None
+
+    # SP500 — try primary, fall back to total return index
+    for sid in ["SP500", "SPASTT01USM661N"]:
+        try:
+            s = to_monthly(fetch_fred_api(sid, obs_start="1956-01-01"), method="last")
+            if s.index[0].year < 2000:
+                data["SP500"] = s
+                break
+        except Exception:
+            continue
+
+    # Credit spread — BAA minus AAA
     try:
-        df = fetch_fred("SP500", observation_start="1956-01-01")
-        if df["date"].min().year > 2000:
-            raise ValueError("still truncated")
-        return df, "SP500"
+        baa = to_monthly(fetch_fred_csv(
+            "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAA&observation_start=1919-01-01"))
+        aaa = to_monthly(fetch_fred_csv(
+            "https://fred.stlouisfed.org/graph/fredgraph.csv?id=AAA&observation_start=1919-01-01"))
+        aligned = pd.concat([baa, aaa], axis=1, join="inner")
+        aligned.columns = ["baa", "aaa"]
+        data["CREDIT_SPREAD"] = aligned["baa"] - aligned["aaa"]
     except Exception:
-        df = fetch_fred("SPASTT01USM661N", observation_start="1956-01-01")
-        return df, "SPASTT01USM661N (fallback)"
+        data["CREDIT_SPREAD"] = None
+
+    # CAPE — multpl.com
+    try:
+        r = requests.get("https://multpl.com/shiller-pe/table/by-month",
+                         timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        tables = pd.read_html(r.text)
+        df = tables[0].copy()
+        df.columns = ["date", "value"]
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        data["CAPE"] = df.dropna().set_index("date")["value"].resample("ME").last()
+    except Exception:
+        data["CAPE"] = None
+
+    return data
 
 
-def fetch_moody_spread():
-    baa = fetch_fred_csv(BAA_URL)
-    aaa = fetch_fred_csv(AAA_URL)
-    aligned = baa.join(aaa, how="inner", lsuffix="_baa", rsuffix="_aaa")
-    aligned["spread"] = aligned["value_baa"] - aligned["value_aaa"]
-    aligned = aligned.dropna(subset=["spread"])
-    if aligned.empty:
-        raise ValueError("empty after alignment")
-    return baa, aaa, aligned
+# ── Recession cycles ───────────────────────────────────────
+
+def get_recession_cycles(usrec):
+    usrec = usrec.dropna()
+    cycles, in_rec, start = [], False, None
+    for date, val in usrec.items():
+        if val == 1 and not in_rec:
+            in_rec, start = True, date
+        elif val == 0 and in_rec:
+            in_rec = False
+            cycles.append((start, date))
+    if in_rec:
+        cycles.append((start, usrec.index[-1]))
+    return cycles
 
 
-def fetch_cape():
-    r = requests.get(CAPE_URL, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-    r.raise_for_status()
-    tables = pd.read_html(r.text)
-    if not tables:
-        raise ValueError("no tables found")
-    df = tables[0].copy()
-    df.columns = ["date", "value"]
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df = df.dropna()
-    if df.empty:
-        raise ValueError("empty after parsing")
-    return df
+# ── Signal generation ──────────────────────────────────────
+
+def gen_signal(series, kind, **kw):
+    if series is None or series.empty:
+        return None
+    s = series.dropna()
+
+    if kind == "crossing_below_zero":
+        return (s < 0).reindex(series.index, fill_value=False)
+
+    if kind == "level_above":
+        return (s > kw["threshold"]).reindex(series.index, fill_value=False)
+
+    if kind == "level_below":
+        return (s < kw["threshold"]).reindex(series.index, fill_value=False)
+
+    if kind == "sp500_below_ma":
+        ma = s.rolling(kw.get("window", 10)).mean()
+        return (s < ma).reindex(series.index, fill_value=False)
+
+    if kind == "consecutive_decline":
+        n = kw.get("n", 3)
+        mom = s.diff()
+        sig = (mom < 0).rolling(n).sum() == n
+        return sig.fillna(False).reindex(series.index, fill_value=False)
+
+    if kind == "yoy_change_above":
+        yoy = s.pct_change(12) * 100
+        return (yoy > kw["threshold"]).reindex(series.index, fill_value=False)
+
+    if kind == "fed_cutting":
+        n = kw.get("n", 3)
+        diff = s.diff()
+        sig = (diff < 0).rolling(n).sum() == n
+        return sig.fillna(False).reindex(series.index, fill_value=False)
+
+    return None
+
+
+def optimize_threshold(series, kind, rec_cycles, test_vals):
+    best_score, best_th = -999, test_vals[0]
+    for th in test_vals:
+        sig = gen_signal(series, kind, threshold=th)
+        if sig is None:
+            continue
+        _, hits, total, fp = calibrate(sig, rec_cycles)
+        if total == 0:
+            continue
+        score = (hits / total) - 0.5 * (fp / 100)
+        if score > best_score:
+            best_score, best_th = score, th
+    return best_th
+
+
+# ── Calibration ────────────────────────────────────────────
+
+def calibrate(signal, rec_cycles, lookback=18, horizon=12):
+    if signal is None or signal.empty:
+        return 0, 0, 0, 0
+
+    signal = signal.fillna(False)
+    hits, lead_times, total = 0, [], 0
+
+    for rs, re in rec_cycles:
+        if rs < signal.index[0] or rs > signal.index[-1]:
+            continue
+        total += 1
+        win_start = rs - pd.DateOffset(months=lookback)
+        try:
+            win = signal.loc[win_start:rs]
+        except Exception:
+            continue
+        if win.any():
+            hits += 1
+            first_sig = win[win].index[0]
+            try:
+                lead = max(0, (rs.to_period("M") - first_sig.to_period("M")).n)
+            except Exception:
+                lead = 0
+            lead_times.append(min(lead, lookback))
+
+    sig_months = signal[signal].index
+    fp = 0
+    for sm in sig_months:
+        in_rec = any(rs <= sm <= re for rs, re in rec_cycles)
+        near_rec = any(
+            0 <= (rs.to_period("M") - sm.to_period("M")).n <= horizon
+            for rs, re in rec_cycles if rs >= sm
+        )
+        if not in_rec and not near_rec:
+            fp += 1
+
+    fp_rate = (fp / len(sig_months) * 100) if len(sig_months) > 0 else 0
+    avg_lead = round(np.mean(lead_times)) if lead_times else 0
+    return avg_lead, hits, total, fp_rate
+
+
+def confidence_level(hit_rate, fp_rate):
+    if hit_rate >= 0.75 and fp_rate < 30:
+        return "HIGH"
+    if hit_rate >= 0.50 and fp_rate < 50:
+        return "MED"
+    return "LOW"
+
+
+# ── Composite probability ──────────────────────────────────
+
+def composite_probability(signals_dict, rec_cycles, h6=6, h12=12):
+    valid = {k: v for k, v in signals_dict.items() if v is not None and not v.empty}
+    if not valid:
+        return {}
+    df = pd.DataFrame(valid).fillna(False)
+    n_active = df.sum(axis=1).astype(int)
+    results = {}
+    for n in sorted(n_active.unique()):
+        months = n_active[n_active == n].index
+        rec6 = rec12 = 0
+        for m in months:
+            for rs, re in rec_cycles:
+                if rs < m:
+                    continue
+                diff = (rs.to_period("M") - m.to_period("M")).n
+                if 0 <= diff <= h6:
+                    rec6 += 1
+                    break
+            for rs, re in rec_cycles:
+                if rs < m:
+                    continue
+                diff = (rs.to_period("M") - m.to_period("M")).n
+                if 0 <= diff <= h12:
+                    rec12 += 1
+                    break
+        results[n] = {
+            "months": len(months),
+            "p6": round(rec6 / len(months) * 100),
+            "p12": round(rec12 / len(months) * 100),
+        }
+    return results
 
 
 # ── Report ─────────────────────────────────────────────────
 
-def print_report(rows):
+def print_report(rows, rec_cycles, data, signals, comp_probs):
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    valid = [s for s in data.values() if s is not None]
+    all_start = min(s.index[0] for s in valid).strftime("%Y-%m-%d")
+    all_end   = max(s.index[-1] for s in valid).strftime("%Y-%m-%d")
+
     print()
-    print("DATA AVAILABILITY REPORT")
-    print("=" * 90)
-    print(f"{'Series':<16} {'Status':<8} {'First Date':<13} {'Last Date':<13} {'Rows':<7} Notes")
-    print("=" * 90)
-    for name, status, first, last, n, notes in rows:
-        print(f"{name:<16} {status:<8} {first:<13} {last:<13} {str(n):<7} {notes}")
-    print("=" * 90)
-    ok   = sum(1 for r in rows if r[1] == "OK")
-    fail = sum(1 for r in rows if r[1] == "FAIL")
-    print(f"\nSummary: {ok} OK, {fail} FAIL out of {len(rows)} series")
-    print(f"API key: {'set' if FRED_API_KEY else 'NOT SET'}")
-    print(f"Run at:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("RECESSION INDICATOR CALIBRATION REPORT")
+    print("=" * 68)
+    print(f"Generated: {now}")
+    print(f"Data range: {all_start} to {all_end}")
+    print(f"Recession cycles analyzed: {len(rec_cycles)}")
+    print("Recession periods used:")
+    for rs, re in rec_cycles:
+        print(f"  {rs.strftime('%Y-%m-%d')} to {re.strftime('%Y-%m-%d')}")
+
+    print()
+    print("INDICATOR RESULTS")
+    print("-" * 68)
+    print(f"{'Series':<16} {'Signal':<12} {'Threshold':<13} {'Lead Time':<13} {'Hit Rate':<12} {'FP Rate':<11} Confidence")
+    print("-" * 68)
+    for r in rows:
+        print(f"{r['series']:<16} {r['signal']:<12} {r['threshold']:<13} {r['lead']:<13} {r['hit_rate']:<12} {r['fp_rate']:<11} {r['conf']}")
+
+    print()
+    print("SIGNAL QUALITY RANKING")
+    print("-" * 68)
+    print(f"{'Rank':<8} {'Series':<16} {'Composite Score':<19} Primary Value")
+    print("-" * 68)
+    ranked = sorted(rows, key=lambda x: x["score"], reverse=True)
+    for i, r in enumerate(ranked, 1):
+        print(f"{i:<8} {r['series']:<16} {r['score']:.3f}              {r['hit_rate']} — lead {r['lead']}")
+
+    print()
+    print("COMPOSITE SCORE CALIBRATION")
+    print("-" * 68)
+    for n, vals in sorted(comp_probs.items()):
+        if n == 0:
+            continue
+        print(f"{n} indicator{'s' if n != 1 else ''} simultaneously at threshold:")
+        print(f"  {vals['p6']}% probability recession within 6 months")
+        print(f"  {vals['p12']}% probability recession within 12 months")
+        print(f"  Based on {vals['months']} historical months")
+        print()
+
+    print("=" * 68)
 
 
 # ── Main ───────────────────────────────────────────────────
 
 def main():
+    data = load_all()
+
+    usrec = data.get("USREC")
+    if usrec is None:
+        print("FATAL: Could not load USREC")
+        return
+
+    all_cycles = get_recession_cycles(usrec)
+    rec_cycles = [(rs, re) for rs, re in all_cycles if rs.year >= 1960]
+
     rows = []
+    signals = {}
 
-    for series_id, obs_start, note in FRED_SERIES:
-        try:
-            df = fetch_fred(series_id, observation_start=obs_start)
-            first = df["date"].min().strftime("%Y-%m-%d")
-            last  = df["date"].max().strftime("%Y-%m-%d")
-            rows.append((series_id, "OK", first, last, len(df), note))
-        except Exception as e:
-            rows.append((series_id, "FAIL", "-", "-", 0, str(e)[:60]))
+    def add(series_id, sig_type, sig_kind, threshold_str, sig, lead, hits, total, fp):
+        hr = hits / total if total else 0
+        rows.append({
+            "series": series_id, "signal": sig_type, "threshold": threshold_str,
+            "lead": f"{lead} months", "hit_rate": f"{hits}/{total}",
+            "fp_rate": f"{fp:.0f}%", "conf": confidence_level(hr, fp),
+            "score": hr * (1 - fp / 100),
+        })
+        if sig is not None:
+            signals[series_id] = sig
 
-    try:
-        df, source = fetch_sp500()
-        first = df["date"].min().strftime("%Y-%m-%d")
-        last  = df["date"].max().strftime("%Y-%m-%d")
-        rows.append(("SP500", "OK", first, last, len(df), source))
-    except Exception as e:
-        rows.append(("SP500", "FAIL", "-", "-", 0, str(e)[:60]))
+    # T10Y3M
+    s = data.get("T10Y3M")
+    if s is not None:
+        sig = gen_signal(s, "crossing_below_zero")
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("T10Y3M", "crossing", None, "<0%", sig, l, h, t, fp)
 
-    try:
-        baa, aaa, spread = fetch_moody_spread()
-        rows.append(("BAA", "OK",
-                     baa.index.min().strftime("%Y-%m-%d"),
-                     baa.index.max().strftime("%Y-%m-%d"),
-                     len(baa), "Moody's BAA yield"))
-        rows.append(("AAA", "OK",
-                     aaa.index.min().strftime("%Y-%m-%d"),
-                     aaa.index.max().strftime("%Y-%m-%d"),
-                     len(aaa), "Moody's AAA yield"))
-        rows.append(("CREDIT_SPREAD", "OK",
-                     spread.index.min().strftime("%Y-%m-%d"),
-                     spread.index.max().strftime("%Y-%m-%d"),
-                     len(spread), "BAA minus AAA"))
-    except Exception as e:
-        rows.append(("BAA",          "FAIL", "-", "-", 0, str(e)[:60]))
-        rows.append(("AAA",          "FAIL", "-", "-", 0, str(e)[:60]))
-        rows.append(("CREDIT_SPREAD","FAIL", "-", "-", 0, str(e)[:60]))
+    # T10Y2Y
+    s = data.get("T10Y2Y")
+    if s is not None:
+        sig = gen_signal(s, "crossing_below_zero")
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("T10Y2Y", "crossing", None, "<0%", sig, l, h, t, fp)
 
-    try:
-        df = fetch_cape()
-        first = df["date"].min().strftime("%Y-%m-%d")
-        last  = df["date"].max().strftime("%Y-%m-%d")
-        rows.append(("CAPE", "OK", first, last, len(df), "multpl.com"))
-    except Exception as e:
-        rows.append(("CAPE", "FAIL", "-", "-", 0, str(e)[:60]))
+    # DFII10
+    s = data.get("DFII10")
+    if s is not None:
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25))
+        sig = gen_signal(s, "level_above", threshold=th)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("DFII10", "level", None, f">{th:.1f}%", sig, l, h, t, fp)
 
-    print_report(rows)
+    # ICSA
+    s = data.get("ICSA")
+    if s is not None:
+        th = optimize_threshold(s, "level_above", rec_cycles,
+                                np.arange(200000, 600000, 25000))
+        sig = gen_signal(s, "level_above", threshold=th)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("ICSA", "level", None, f">{th/1000:.0f}k", sig, l, h, t, fp)
+
+    # UMCSENT
+    s = data.get("UMCSENT")
+    if s is not None:
+        th = optimize_threshold(s, "level_below", rec_cycles, np.arange(60, 91, 5))
+        sig = gen_signal(s, "level_below", threshold=th)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("UMCSENT", "level", None, f"<{th:.0f}", sig, l, h, t, fp)
+
+    # INDPRO
+    s = data.get("INDPRO")
+    if s is not None:
+        sig = gen_signal(s, "consecutive_decline", n=3)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("INDPRO", "direction", None, "3mo decline", sig, l, h, t, fp)
+
+    # MANEMP
+    s = data.get("MANEMP")
+    if s is not None:
+        sig = gen_signal(s, "consecutive_decline", n=3)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("MANEMP", "direction", None, "3mo decline", sig, l, h, t, fp)
+
+    # PCEPILFE — YoY change above threshold (elevated inflation → Fed hiking → recession)
+    s = data.get("PCEPILFE")
+    if s is not None:
+        th = optimize_threshold(s, "yoy_change_above", rec_cycles, np.arange(1.0, 5.5, 0.5))
+        sig = gen_signal(s, "yoy_change_above", threshold=th)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("PCEPILFE", "direction", None, f">{th:.1f}% YoY", sig, l, h, t, fp)
+
+    # DFF — Fed cutting cycle
+    s = data.get("DFF")
+    if s is not None:
+        sig = gen_signal(s, "fed_cutting", n=3)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("DFF", "direction", None, "cutting 3mo", sig, l, h, t, fp)
+
+    # SP500 below 10-month MA
+    s = data.get("SP500")
+    if s is not None:
+        sig = gen_signal(s, "sp500_below_ma", window=10)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("SP500", "level", None, "< 10mo MA", sig, l, h, t, fp)
+
+    # VIXCLS
+    s = data.get("VIXCLS")
+    if s is not None:
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(15, 45, 5))
+        sig = gen_signal(s, "level_above", threshold=th)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("VIXCLS", "level", None, f">{th:.0f}", sig, l, h, t, fp)
+
+    # CAPE
+    s = data.get("CAPE")
+    if s is not None:
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(20, 45, 5))
+        sig = gen_signal(s, "level_above", threshold=th)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("CAPE", "level", None, f">{th:.0f}", sig, l, h, t, fp)
+
+    # CREDIT_SPREAD
+    s = data.get("CREDIT_SPREAD")
+    if s is not None:
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25))
+        sig = gen_signal(s, "level_above", threshold=th)
+        l, h, t, fp = calibrate(sig, rec_cycles)
+        add("CREDIT_SPREAD", "level", None, f">{th:.2f}%", sig, l, h, t, fp)
+
+    comp_probs = composite_probability(signals, rec_cycles)
+    print_report(rows, rec_cycles, data, signals, comp_probs)
 
 
 if __name__ == "__main__":
