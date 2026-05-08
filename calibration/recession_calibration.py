@@ -612,7 +612,7 @@ def main():
                 "signal":      r["signal"],
                 "sig_kind":    r["sig_kind"],
                 "threshold":   r["threshold"],
-                "threshold_val": r["threshold_val"],
+                "threshold_val": float(r["threshold_val"]) if r["threshold_val"] is not None else None,
                 "lead_months": r["lead"],
                 "hit_rate":    r["hit_rate"],
                 "fp_rate":     r["fp_rate"],
