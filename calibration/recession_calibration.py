@@ -5,6 +5,7 @@ Recession indicator calibration pipeline. Print report only. No files saved.
 
 import io
 import os
+import time
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,22 +23,32 @@ API_KEY = os.getenv("FRED_API_KEY", "")
 
 # ── Data fetching ──────────────────────────────────────────
 
-def fetch_fred_api(series_id, obs_start=None):
+def fetch_fred_api(series_id, obs_start=None, retries=3):
     url = (
         f"https://api.stlouisfed.org/fred/series/observations"
         f"?series_id={series_id}&api_key={API_KEY}&file_type=json"
         + (f"&observation_start={obs_start}" if obs_start else "")
     )
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
-    data = r.json()
-    if "observations" not in data:
-        raise ValueError(data.get("error_message", "no observations"))
-    df = pd.DataFrame(data["observations"])[["date", "value"]]
-    df["date"] = pd.to_datetime(df["date"])
-    df = df[df["value"] != "."]
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    return df.dropna().set_index("date")["value"]
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, timeout=20)
+            if r.status_code in (500, 502, 503) and attempt < retries - 1:
+                time.sleep(2 ** attempt)
+                continue
+            r.raise_for_status()
+            data = r.json()
+            if "observations" not in data:
+                raise ValueError(data.get("error_message", "no observations"))
+            df = pd.DataFrame(data["observations"])[["date", "value"]]
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[df["value"] != "."]
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+            return df.dropna().set_index("date")["value"]
+        except Exception as e:
+            if attempt == retries - 1:
+                raise
+            time.sleep(2 ** attempt)
+    raise RuntimeError(f"Failed after {retries} attempts")
 
 
 def fetch_fred_csv(url):
@@ -58,6 +69,7 @@ def to_monthly(series, method="last"):
 
 def load_all():
     data = {}
+    failed = []
 
     mean_series = {"T10Y3M", "T10Y2Y", "DFF", "DFII10", "VIXCLS"}
     fred_series = ["USREC", "T10Y3M", "T10Y2Y", "DFII10", "ICSA",
@@ -69,6 +81,12 @@ def load_all():
             data[sid] = to_monthly(fetch_fred_api(sid), method=method)
         except Exception as e:
             data[sid] = None
+            failed.append(f"{sid}: {str(e)[:60]}")
+
+    if failed:
+        print("  LOAD FAILURES:")
+        for f in failed:
+            print(f"    {f}")
 
     # SP500 — try primary, fall back to total return index
     for sid in ["SP500", "SPASTT01USM661N"]:
