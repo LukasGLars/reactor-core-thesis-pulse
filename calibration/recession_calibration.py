@@ -480,7 +480,7 @@ def main():
 
     def add(series_id, sig_type, sig_kind, threshold_val, threshold_str, sig, lead, hits, total, fp):
         hr = hits / total if total else 0
-        in_composite = fp <= 40
+        in_composite = True
         rows.append({
             "series": series_id, "signal": sig_type, "threshold": threshold_str,
             "sig_kind": sig_kind, "threshold_val": threshold_val,
