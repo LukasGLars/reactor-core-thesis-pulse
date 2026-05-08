@@ -1,0 +1,128 @@
+
+RECESSION INDICATOR CALIBRATION REPORT
+====================================================================
+Generated: 2026-05-08 11:57 UTC
+Data range: 1854-12-31 to 2026-05-31
+Recession cycles analyzed: 9
+Recession periods used:
+  1960-05-31 to 1961-03-31
+  1970-01-31 to 1970-12-31
+  1973-12-31 to 1975-04-30
+  1980-02-29 to 1980-08-31
+  1981-08-31 to 1982-12-31
+  1990-08-31 to 1991-04-30
+  2001-04-30 to 2001-12-31
+  2008-01-31 to 2009-07-31
+  2020-03-31 to 2020-05-31
+
+INDICATOR RESULTS -- COMPOSITE SET (all 13 indicators)
+--------------------------------------------------------------------
+Series           Signal       Threshold     Lead Time     Hit Rate     FP Rate     Confidence
+--------------------------------------------------------------------
+T10Y3M           crossing     <0%           12 months     4/4          64%         LOW
+T10Y2Y           crossing     <0%           17 months     5/6          49%         MED
+DFII10           level        >1.0%         18 months     2/2          78%         LOW
+ICSA             level        >225k         16 months     8/8          74%         LOW
+UMCSENT          level        <90           11 months     8/9          69%         LOW
+INDPRO           direction    3mo decline   8 months      7/9          59%         LOW
+MANEMP           direction    3mo decline   10 months     7/9          59%         LOW
+PCEPILFE         direction    >2.0% YoY     15 months     9/9          69%         LOW
+DFF              direction    cutting 3mo   6 months      6/9          53%         LOW
+SP500            level        < 10mo MA     11 months     9/9          54%         LOW
+VIXCLS           level        >25           4 months      4/4          56%         LOW
+CAPE             level        >20           9 months      4/9          85%         LOW
+CREDIT_SPREAD    level        >0.75%        18 months     9/9          79%         LOW
+
+SIGNAL QUALITY RANKING
+--------------------------------------------------------------------
+Rank     Series           Composite Score     Status             Primary Value
+--------------------------------------------------------------------
+1        SP500            0.456              COMPOSITE          9/9 -- lead 11 months
+2        VIXCLS           0.440              COMPOSITE          4/4 -- lead 4 months
+3        T10Y2Y           0.421              COMPOSITE          5/6 -- lead 17 months
+4        T10Y3M           0.362              COMPOSITE          4/4 -- lead 12 months
+5        INDPRO           0.320              COMPOSITE          7/9 -- lead 8 months
+6        MANEMP           0.316              COMPOSITE          7/9 -- lead 10 months
+7        DFF              0.314              COMPOSITE          6/9 -- lead 6 months
+8        PCEPILFE         0.313              COMPOSITE          9/9 -- lead 15 months
+9        UMCSENT          0.273              COMPOSITE          8/9 -- lead 11 months
+10       ICSA             0.262              COMPOSITE          8/8 -- lead 16 months
+11       DFII10           0.217              COMPOSITE          2/2 -- lead 18 months
+12       CREDIT_SPREAD    0.206              COMPOSITE          9/9 -- lead 18 months
+13       CAPE             0.066              COMPOSITE          4/9 -- lead 9 months
+
+COMPOSITE SCORE CALIBRATION
+--------------------------------------------------------------------
+1 indicator simultaneously at threshold:
+  0% probability recession within 6 months
+  2% probability recession within 12 months
+  Based on 355 historical months
+
+2 indicators simultaneously at threshold:
+  1% probability recession within 6 months
+  6% probability recession within 12 months
+  Based on 156 historical months
+
+3 indicators simultaneously at threshold:
+  7% probability recession within 6 months
+  12% probability recession within 12 months
+  Based on 164 historical months
+
+4 indicators simultaneously at threshold:
+  5% probability recession within 6 months
+  7% probability recession within 12 months
+  Based on 163 historical months
+
+5 indicators simultaneously at threshold:
+  16% probability recession within 6 months
+  29% probability recession within 12 months
+  Based on 121 historical months
+
+6 indicators simultaneously at threshold:
+  14% probability recession within 6 months
+  17% probability recession within 12 months
+  Based on 72 historical months
+
+7 indicators simultaneously at threshold:
+  10% probability recession within 6 months
+  15% probability recession within 12 months
+  Based on 59 historical months
+
+8 indicators simultaneously at threshold:
+  3% probability recession within 6 months
+  10% probability recession within 12 months
+  Based on 30 historical months
+
+9 indicators simultaneously at threshold:
+  20% probability recession within 6 months
+  30% probability recession within 12 months
+  Based on 10 historical months
+
+10 indicators simultaneously at threshold:
+  0% probability recession within 6 months
+  0% probability recession within 12 months
+  Based on 2 historical months
+
+
+LIVE SIGNAL STATE
+--------------------------------------------------------------------------------
+Series           Live Value               Threshold      Firing   Set
+--------------------------------------------------------------------------------
+T10Y3M           +0.72%                   <0%            NO       composite
+T10Y2Y           +0.50%                   <0%            NO       composite
+DFII10           1.94%                    >1.0%          YES      composite
+ICSA             200k                     >225k          NO       composite
+UMCSENT          53.3                     <90            YES      composite
+INDPRO           2/3 months declining     3mo decline    NO       composite
+MANEMP           1/3 months declining     3mo decline    NO       composite
+PCEPILFE         3.2% YoY                 >2.0% YoY      YES      composite
+DFF              3.64% (0/3mo cutting)    cutting 3mo    NO       composite
+SP500            +3.1% vs 10mo MA         < 10mo MA      NO       composite
+VIXCLS           17.5                     >25            NO       composite
+CAPE             41.7                     >20            YES      composite
+CREDIT_SPREAD    0.61%                    >0.75%         NO       composite
+--------------------------------------------------------------------------------
+COMPOSITE LIVE STATE: 4/13 composite indicators at threshold
+RECESSION PROBABILITY: BACKGROUND NOISE
+
+====================================================================
