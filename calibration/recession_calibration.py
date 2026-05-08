@@ -23,22 +23,22 @@ FRED_API_KEY = os.getenv("FRED_API_KEY", "")
 
 # (series_id, observation_start, note)
 FRED_SERIES = [
-    ("USREC",    None,         "NBER recession indicator"),
-    ("T10Y3M",   None,         ""),
-    ("T10Y2Y",   None,         ""),
-    ("DFII10",   None,         ""),
-    ("ICSA",     None,         ""),
-    ("UMCSENT",  None,         ""),
-    ("INDPRO",   None,         ""),
-    ("MANEMP",   None,         "ISM PMI unavailable via FRED CSV — using manufacturing employment as proxy"),
-    ("PCEPILFE", None,         ""),
-    ("DFF",      None,         ""),
+    ("USREC",    None,  "NBER recession indicator"),
+    ("T10Y3M",   None,  ""),
+    ("T10Y2Y",   None,  ""),
+    ("DFII10",   None,  ""),
+    ("ICSA",     None,  ""),
+    ("UMCSENT",  None,  ""),
+    ("INDPRO",   None,  ""),
+    ("MANEMP",   None,  "ISM PMI unavailable via FRED CSV — using manufacturing employment as proxy"),
+    ("PCEPILFE", None,  ""),
+    ("DFF",      None,  ""),
 ]
 
-CAPE_URL = "https://multpl.com/shiller-pe/table/by-month"
+BAA_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAA&observation_start=1919-01-01"
+AAA_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=AAA&observation_start=1919-01-01"
 
-HY_OAS_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&observation_start=1996-01-01"
-IG_OAS_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLC0A0CM&observation_start=1996-01-01"
+CAPE_URL = "https://multpl.com/shiller-pe/table/by-month"
 
 
 # ── Fetch helpers ──────────────────────────────────────────
@@ -67,6 +67,19 @@ def fetch_fred(series_id, observation_start=None):
     return df
 
 
+def fetch_fred_csv(url):
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text), parse_dates=[0])
+    df.columns = ["date", "value"]
+    df = df[df["value"] != "."]
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["value"])
+    if df.empty:
+        raise ValueError("empty after cleaning")
+    return df.set_index("date")
+
+
 def fetch_sp500():
     try:
         df = fetch_fred("SP500", observation_start="1956-01-01")
@@ -78,27 +91,15 @@ def fetch_sp500():
         return df, "SPASTT01USM661N (fallback)"
 
 
-def fetch_credit_spread():
-    """CREDIT_SPREAD = HY_OAS (BAMLH0A0HYM2) minus IG_OAS (BAMLC0A0CM)."""
-    def load_csv(url):
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
-        df = pd.read_csv(io.StringIO(r.text), parse_dates=[0])
-        df.columns = ["date", "value"]
-        df = df[df["value"] != "."]
-        df["value"] = pd.to_numeric(df["value"], errors="coerce")
-        return df.dropna(subset=["value"]).set_index("date")
-
-    hy = load_csv(HY_OAS_URL)
-    ig = load_csv(IG_OAS_URL)
-
-    aligned = hy.join(ig, how="inner", lsuffix="_hy", rsuffix="_ig")
-    aligned["value"] = aligned["value_hy"] - aligned["value_ig"]
-    aligned = aligned[["value"]].dropna()
-
+def fetch_moody_spread():
+    baa = fetch_fred_csv(BAA_URL)
+    aaa = fetch_fred_csv(AAA_URL)
+    aligned = baa.join(aaa, how="inner", lsuffix="_baa", rsuffix="_aaa")
+    aligned["spread"] = aligned["value_baa"] - aligned["value_aaa"]
+    aligned = aligned.dropna(subset=["spread"])
     if aligned.empty:
         raise ValueError("empty after alignment")
-    return aligned
+    return baa, aaa, aligned
 
 
 def fetch_cape():
@@ -158,12 +159,23 @@ def main():
         rows.append(("SP500", "FAIL", "-", "-", 0, str(e)[:60]))
 
     try:
-        df = fetch_credit_spread()
-        first = df.index.min().strftime("%Y-%m-%d")
-        last  = df.index.max().strftime("%Y-%m-%d")
-        rows.append(("CREDIT_SPREAD", "OK", first, last, len(df), "HY_OAS minus IG_OAS"))
+        baa, aaa, spread = fetch_moody_spread()
+        rows.append(("BAA", "OK",
+                     baa.index.min().strftime("%Y-%m-%d"),
+                     baa.index.max().strftime("%Y-%m-%d"),
+                     len(baa), "Moody's BAA yield"))
+        rows.append(("AAA", "OK",
+                     aaa.index.min().strftime("%Y-%m-%d"),
+                     aaa.index.max().strftime("%Y-%m-%d"),
+                     len(aaa), "Moody's AAA yield"))
+        rows.append(("CREDIT_SPREAD", "OK",
+                     spread.index.min().strftime("%Y-%m-%d"),
+                     spread.index.max().strftime("%Y-%m-%d"),
+                     len(spread), "BAA minus AAA"))
     except Exception as e:
-        rows.append(("CREDIT_SPREAD", "FAIL", "-", "-", 0, str(e)[:60]))
+        rows.append(("BAA",          "FAIL", "-", "-", 0, str(e)[:60]))
+        rows.append(("AAA",          "FAIL", "-", "-", 0, str(e)[:60]))
+        rows.append(("CREDIT_SPREAD","FAIL", "-", "-", 0, str(e)[:60]))
 
     try:
         df = fetch_cape()
