@@ -1,7 +1,7 @@
 
 RECESSION INDICATOR CALIBRATION REPORT
 ====================================================================
-Generated: 2026-05-08 11:57 UTC
+Generated: 2026-05-11 12:07 UTC
 Data range: 1854-12-31 to 2026-05-31
 Recession cycles analyzed: 9
 Recession periods used:
@@ -108,18 +108,18 @@ LIVE SIGNAL STATE
 --------------------------------------------------------------------------------
 Series           Live Value               Threshold      Firing   Set
 --------------------------------------------------------------------------------
-T10Y3M           +0.72%                   <0%            NO       composite
-T10Y2Y           +0.50%                   <0%            NO       composite
+T10Y3M           +0.71%                   <0%            NO       composite
+T10Y2Y           +0.49%                   <0%            NO       composite
 DFII10           1.94%                    >1.0%          YES      composite
 ICSA             200k                     >225k          NO       composite
 UMCSENT          53.3                     <90            YES      composite
 INDPRO           2/3 months declining     3mo decline    NO       composite
 MANEMP           1/3 months declining     3mo decline    NO       composite
 PCEPILFE         3.2% YoY                 >2.0% YoY      YES      composite
-DFF              3.64% (0/3mo cutting)    cutting 3mo    NO       composite
+DFF              3.64% (1/3mo cutting)    cutting 3mo    NO       composite
 SP500            +3.1% vs 10mo MA         < 10mo MA      NO       composite
-VIXCLS           17.5                     >25            NO       composite
-CAPE             41.7                     >20            YES      composite
+VIXCLS           17.4                     >25            NO       composite
+CAPE             42.0                     >20            YES      composite
 CREDIT_SPREAD    0.61%                    >0.75%         NO       composite
 --------------------------------------------------------------------------------
 COMPOSITE LIVE STATE: 4/13 composite indicators at threshold

@@ -7,7 +7,6 @@ import contextlib
 import io
 import json
 import os
-import time
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,56 +16,19 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
+from common import (
+    fetch_fred_api,
+    fetch_fred_csv,
+    to_monthly,
+    gen_signal,
+    optimize_threshold,
+    confidence_level,
+)
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 warnings.filterwarnings("ignore")
 
 API_KEY = os.getenv("FRED_API_KEY", "")
-
-
-# ── Data fetching ──────────────────────────────────────────
-
-def fetch_fred_api(series_id, obs_start=None, retries=3):
-    url = (
-        f"https://api.stlouisfed.org/fred/series/observations"
-        f"?series_id={series_id}&api_key={API_KEY}&file_type=json"
-        + (f"&observation_start={obs_start}" if obs_start else "")
-    )
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, timeout=20)
-            if r.status_code in (500, 502, 503) and attempt < retries - 1:
-                time.sleep(2 ** attempt)
-                continue
-            r.raise_for_status()
-            data = r.json()
-            if "observations" not in data:
-                raise ValueError(data.get("error_message", "no observations"))
-            df = pd.DataFrame(data["observations"])[["date", "value"]]
-            df["date"] = pd.to_datetime(df["date"])
-            df = df[df["value"] != "."]
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-            return df.dropna().set_index("date")["value"]
-        except Exception as e:
-            if attempt == retries - 1:
-                raise
-            time.sleep(2 ** attempt)
-    raise RuntimeError(f"Failed after {retries} attempts")
-
-
-def fetch_fred_csv(url):
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
-    df = pd.read_csv(io.StringIO(r.text), parse_dates=[0])
-    df.columns = ["date", "value"]
-    df = df[df["value"] != "."]
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    return df.dropna().set_index("date")["value"]
-
-
-def to_monthly(series, method="last"):
-    if method == "mean":
-        return series.resample("ME").mean()
-    return series.resample("ME").last()
 
 
 def load_all():
@@ -80,7 +42,7 @@ def load_all():
     for sid in fred_series:
         try:
             method = "mean" if sid in mean_series else "last"
-            data[sid] = to_monthly(fetch_fred_api(sid), method=method)
+            data[sid] = to_monthly(fetch_fred_api(sid, API_KEY), method=method)
         except Exception as e:
             data[sid] = None
             failed.append(f"{sid}: {str(e)[:60]}")
@@ -93,7 +55,7 @@ def load_all():
     # SP500 -- try primary, fall back to total return index
     for sid in ["SP500", "SPASTT01USM661N"]:
         try:
-            s = to_monthly(fetch_fred_api(sid, obs_start="1956-01-01"), method="last")
+            s = to_monthly(fetch_fred_api(sid, API_KEY, obs_start="1956-01-01"), method="last")
             if s.index[0].year < 2000:
                 data["SP500"] = s
                 break
@@ -128,6 +90,8 @@ def load_all():
     return data
 
 
+
+
 # ── Recession cycles ───────────────────────────────────────
 
 def get_recession_cycles(usrec):
@@ -142,60 +106,6 @@ def get_recession_cycles(usrec):
     if in_rec:
         cycles.append((start, usrec.index[-1]))
     return cycles
-
-
-# ── Signal generation ──────────────────────────────────────
-
-def gen_signal(series, kind, **kw):
-    if series is None or series.empty:
-        return None
-    s = series.dropna()
-
-    if kind == "crossing_below_zero":
-        return (s < 0).reindex(series.index, fill_value=False)
-
-    if kind == "level_above":
-        return (s > kw["threshold"]).reindex(series.index, fill_value=False)
-
-    if kind == "level_below":
-        return (s < kw["threshold"]).reindex(series.index, fill_value=False)
-
-    if kind == "sp500_below_ma":
-        ma = s.rolling(kw.get("window", 10)).mean()
-        return (s < ma).reindex(series.index, fill_value=False)
-
-    if kind == "consecutive_decline":
-        n = kw.get("n", 3)
-        mom = s.diff()
-        sig = (mom < 0).rolling(n).sum() == n
-        return sig.fillna(False).reindex(series.index, fill_value=False)
-
-    if kind == "yoy_change_above":
-        yoy = s.pct_change(12) * 100
-        return (yoy > kw["threshold"]).reindex(series.index, fill_value=False)
-
-    if kind == "fed_cutting":
-        n = kw.get("n", 3)
-        diff = s.diff()
-        sig = (diff < 0).rolling(n).sum() == n
-        return sig.fillna(False).reindex(series.index, fill_value=False)
-
-    return None
-
-
-def optimize_threshold(series, kind, rec_cycles, test_vals):
-    best_score, best_th = -999, test_vals[0]
-    for th in test_vals:
-        sig = gen_signal(series, kind, threshold=th)
-        if sig is None:
-            continue
-        _, hits, total, fp = calibrate(sig, rec_cycles)
-        if total == 0:
-            continue
-        score = (hits / total) - 0.5 * (fp / 100)
-        if score > best_score:
-            best_score, best_th = score, th
-    return best_th
 
 
 # ── Calibration ────────────────────────────────────────────
@@ -239,14 +149,6 @@ def calibrate(signal, rec_cycles, lookback=18, horizon=12):
     fp_rate = (fp / len(sig_months) * 100) if len(sig_months) > 0 else 0
     avg_lead = round(np.mean(lead_times)) if lead_times else 0
     return avg_lead, hits, total, fp_rate
-
-
-def confidence_level(hit_rate, fp_rate):
-    if hit_rate >= 0.75 and fp_rate < 30:
-        return "HIGH"
-    if hit_rate >= 0.50 and fp_rate < 50:
-        return "MED"
-    return "LOW"
 
 
 # ── Composite probability ──────────────────────────────────
@@ -502,7 +404,7 @@ def main():
     # DFII10
     s = data.get("DFII10")
     if s is not None:
-        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25))
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25), calibrate)
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("DFII10", "level", "level_above", th, f">{th:.1f}%", sig, l, h, t, fp)
@@ -510,7 +412,7 @@ def main():
     # ICSA
     s = data.get("ICSA")
     if s is not None:
-        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(200000, 600000, 25000))
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(200000, 600000, 25000), calibrate)
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("ICSA", "level", "level_above", th, f">{th/1000:.0f}k", sig, l, h, t, fp)
@@ -518,7 +420,7 @@ def main():
     # UMCSENT
     s = data.get("UMCSENT")
     if s is not None:
-        th = optimize_threshold(s, "level_below", rec_cycles, np.arange(60, 91, 5))
+        th = optimize_threshold(s, "level_below", rec_cycles, np.arange(60, 91, 5), calibrate)
         sig = gen_signal(s, "level_below", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("UMCSENT", "level", "level_below", th, f"<{th:.0f}", sig, l, h, t, fp)
@@ -540,7 +442,7 @@ def main():
     # PCEPILFE
     s = data.get("PCEPILFE")
     if s is not None:
-        th = optimize_threshold(s, "yoy_change_above", rec_cycles, np.arange(1.0, 5.5, 0.5))
+        th = optimize_threshold(s, "yoy_change_above", rec_cycles, np.arange(1.0, 5.5, 0.5), calibrate)
         sig = gen_signal(s, "yoy_change_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("PCEPILFE", "direction", "yoy_change_above", th, f">{th:.1f}% YoY", sig, l, h, t, fp)
@@ -562,7 +464,7 @@ def main():
     # VIXCLS
     s = data.get("VIXCLS")
     if s is not None:
-        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(15, 45, 5))
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(15, 45, 5), calibrate)
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("VIXCLS", "level", "level_above", th, f">{th:.0f}", sig, l, h, t, fp)
@@ -570,7 +472,7 @@ def main():
     # CAPE
     s = data.get("CAPE")
     if s is not None:
-        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(20, 45, 5))
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(20, 45, 5), calibrate)
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("CAPE", "level", "level_above", th, f">{th:.0f}", sig, l, h, t, fp)
@@ -578,7 +480,7 @@ def main():
     # CREDIT_SPREAD
     s = data.get("CREDIT_SPREAD")
     if s is not None:
-        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25))
+        th = optimize_threshold(s, "level_above", rec_cycles, np.arange(0.5, 3.1, 0.25), calibrate)
         sig = gen_signal(s, "level_above", threshold=th)
         l, h, t, fp = calibrate(sig, rec_cycles)
         add("CREDIT_SPREAD", "level", "level_above", th, f">{th:.2f}%", sig, l, h, t, fp)
