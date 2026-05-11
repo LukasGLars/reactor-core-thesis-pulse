@@ -4,6 +4,13 @@
 # Tradeable instruments per signal, restricted to mini futures available
 # commission-free on Avanza Markets (Morgan Stanley issuer, NGM exchange).
 #
+# SCOPE OF THIS FILE:
+# This file maps each signal to the leveraged instruments available on
+# Avanza for taking exposure to that signal. It does NOT prescribe trade
+# actions — what to do when a threshold breaches lives elsewhere (in code,
+# or in a future playbook config). The job here is purely: "for signal X,
+# these are the instruments that exist."
+#
 # Naming convention: MINI L [UNDERLYING] AVA [N]  → Long mini future
 #                    MINI S [UNDERLYING] AVA [N]  → Short mini future
 # AVA [N] is the issuance/strike identifier; multiple Ns exist per underlying
@@ -22,113 +29,106 @@ signals:
 
   real_yield:
     description: 10Y TIPS real yield — gold/silver hedge backdrop
-    trigger_direction: rising              # invalidation when yield rises
-    trade_on_breach: short_long_bonds      # rising yields → short bonds
     instruments:
-      long_bond_price:                     # buy this if yields fall (RY compression bullish)
+      long:
         pattern: MINI L NOTE AVA
         examples: [MINI L NOTE AVA 1, MINI L NOTE AVA 2, MINI L NOTE AVA 6]
         underlying: US 10Y T-Note futures
-      short_bond_price:                    # buy this if yields rise (RY invalidation)
+        exposure: Long bond price (equivalent to long duration / short yield)
+      short:
         pattern: MINI S NOTE AVA
         examples: [MINI S NOTE AVA 1]
         underlying: US 10Y T-Note futures
+        exposure: Short bond price (equivalent to short duration / long yield)
     basis_risk:
       description: |
-        Trigger fires on DFII10 (real yield from TIPS).
-        Trade executes on nominal T-Note futures.
+        Signal computed on DFII10 (real yield from TIPS).
+        Instruments track nominal T-Note futures.
         Real and nominal yields diverge during inflation regime shifts —
         precisely when the thesis cares about real yield.
       severity: HIGH
-      mitigation: Pair with PCE/CPI direction check before executing trade.
 
   dollar_strength:
     description: USD strength — affects gold and silver pricing in USD terms
-    trigger_direction: rising              # invalidation when USD strengthens
-    trade_on_breach: short_eurusd          # USD strength → short EUR/USD
     instruments:
-      long_eurusd:                         # buy this if USD weakens
+      eurusd_long:
         pattern: MINI L EURUSD AVA
         examples: [MINI L EURUSD AVA 33]
         underlying: EUR/USD spot
-      short_eurusd:                        # buy this if USD strengthens (DXY invalidation)
+        exposure: Long EUR/USD (equivalent to short USD vs EUR)
+      eurusd_short:
         pattern: MINI S EURUSD AVA
         examples: [MINI S EURUSD AVA 9]
         underlying: EUR/USD spot
-      long_usdsek:                         # secondary — personal currency exposure
+        exposure: Short EUR/USD (equivalent to long USD vs EUR)
+      usdsek_long:
         pattern: MINI L USDSEK AVA
         examples: [MINI L USDSEK AVA 64, MINI L USDSEK AVA 75]
         underlying: USD/SEK spot
+        exposure: Long USD/SEK (personal currency exposure, secondary)
     basis_risk:
       description: |
         DXY (ICE basket) ~58% EUR-weighted plus JPY/GBP/CAD/SEK/CHF.
         EUR/USD captures dominant component but misses Asian/CAD moves.
       severity: LOW-MEDIUM
-      mitigation: Use DXY as trigger reference; EUR/USD as trade instrument.
 
   gold:
     description: Gold spot — primary thesis hedge
-    trigger_direction: bidirectional
-    trade_on_breach: depends_on_direction
     instruments:
-      long_gold:
+      long:
         pattern: MINI L GULD AVA
         examples: [MINI L GULD AVA 3, MINI L GULD AVA 56, MINI L GULD AVA 100, MINI L GULD AVA 106]
         underlying: Gold futures (Jun rolls)
-      short_gold:
+        exposure: Long gold
+      short:
         pattern: MINI S GULD AVA
         underlying: Gold futures (Jun rolls)
+        exposure: Short gold
     basis_risk:
       description: Futures vs spot — small contango/backwardation drift over time.
       severity: LOW
-      mitigation: Acceptable for trades held <6 months.
 
   silver:
     description: Silver spot — secondary hedge, GS ratio leg
-    trigger_direction: bidirectional
     instruments:
-      long_silver:
+      long:
         pattern: MINI L SILVER AVA
         examples: [MINI L SILVER AVA 71, MINI L SILVER AVA 73, MINI L SILVER AVA 79, MINI L SILVER AVA 81, MINI L SILVER AVA 195]
         underlying: Silver futures (Jul rolls)
-      short_silver:
+        exposure: Long silver
+      short:
         pattern: MINI S SILVER AVA
         examples: [MINI S SILVER AVA 248]
         underlying: Silver futures (Jul rolls)
+        exposure: Short silver
     basis_risk:
       description: Futures vs spot — similar to gold, slightly wider basis.
       severity: LOW
-      mitigation: Acceptable for trades held <6 months.
 
   gold_silver_ratio:
-    description: GS ratio — deployment trigger for silver vs gold rebalance
+    description: GS ratio — relative valuation signal between gold and silver
     derivation: gold_price / silver_price
-    trigger_direction: bidirectional
     instruments:
-      deploy_silver:                       # ratio low → silver cheap → long silver / short gold
-        legs:
-          - pattern: MINI L SILVER AVA
-          - pattern: MINI S GULD AVA
-      invalidate_silver:                   # ratio high → gold strongly outperforming
-        legs:
-          - pattern: MINI S SILVER AVA
-          - pattern: MINI L GULD AVA
+      note: |
+        No single instrument tracks the ratio directly. Exposure to the ratio
+        is taken as a paired position using the gold and silver instruments
+        above. Both legs available as long and short minis.
     basis_risk:
       description: Paired position — each leg has independent basis to its future.
       severity: LOW
-      mitigation: None needed; ratio captures relative move.
 
   uranium:
-    description: Uranium spot — convexity driver via CCJ position
-    trigger_direction: bidirectional
+    description: Uranium spot — convexity driver
     instruments:
-      long_uranium:
+      long:
         pattern: MINI L URANIUM SPROTT AVA
         examples: [MINI L URANIUM SPROTT AVA 01, MINI L URANIUM SPROTT AVA 12]
         underlying: Sprott Physical Uranium Trust (SRUUF / U.UN on TSX)
-      short_uranium:
+        exposure: Long uranium spot (via Sprott trust NAV)
+      short:
         pattern: MINI S URANIUM SPROTT AVA
         underlying: Sprott Physical Uranium Trust (SRUUF / U.UN on TSX)
+        exposure: Short uranium spot (via Sprott trust NAV)
     basis_risk:
       description: |
         Sprott trust tracks uranium spot via NAV. Premium/discount to NAV
@@ -139,22 +139,29 @@ signals:
   brent_wti_spread:
     description: Brent-WTI spread — geopolitical stress signal (Hormuz)
     derivation: brent_price - wti_price
-    trigger_direction: bidirectional       # widening = stress, narrowing = normalization
     instruments:
-      widen_spread:                        # geopolitical stress → long Brent / short WTI
-        legs:
-          - pattern: MINI L OLJA AVA       # NOTE: "OLJA" = Brent in MS Swedish naming
-            examples: [MINI L OLJA AVA 340, MINI L OLJA AVA 358, MINI L OLJA AVA 404, MINI L OLJA AVA 465, MINI L OLJA AVA 467, MINI L OLJA AVA 486]
-            underlying: Brent Crude futures
-          - pattern: MINI S WTI AVA
-            underlying: WTI Crude futures
-      narrow_spread:                       # normalization → opposite
-        legs:
-          - pattern: MINI S OLJA AVA
-            underlying: Brent Crude futures
-          - pattern: MINI L WTI AVA
-            examples: [MINI L WTI AVA 08, MINI L WTI AVA 43]
-            underlying: WTI Crude futures
+      note: |
+        No single instrument tracks the spread directly. Exposure to the
+        spread is taken as a paired position using the Brent and WTI
+        instruments below. Both legs available as long and short minis.
+      brent_long:
+        pattern: MINI L OLJA AVA
+        examples: [MINI L OLJA AVA 340, MINI L OLJA AVA 358, MINI L OLJA AVA 404, MINI L OLJA AVA 465, MINI L OLJA AVA 467, MINI L OLJA AVA 486]
+        underlying: Brent Crude futures
+        exposure: Long Brent (note "OLJA" = Brent in MS Swedish naming)
+      brent_short:
+        pattern: MINI S OLJA AVA
+        underlying: Brent Crude futures
+        exposure: Short Brent
+      wti_long:
+        pattern: MINI L WTI AVA
+        examples: [MINI L WTI AVA 08, MINI L WTI AVA 43]
+        underlying: WTI Crude futures
+        exposure: Long WTI
+      wti_short:
+        pattern: MINI S WTI AVA
+        underlying: WTI Crude futures
+        exposure: Short WTI
     basis_risk:
       description: |
         Two futures-based legs. Each rolls independently — calendar spread
@@ -177,11 +184,11 @@ notes:
     proximity of stop-loss level.
 
 scope_limitations:
-  - JP Morgan does NOT issue retail-tradeable leveraged ETPs on NGM/Avanza.
+  - "JP Morgan does NOT issue retail-tradeable leveraged ETPs on NGM/Avanza.
     The entire leveraged-instrument universe on Avanza is Morgan Stanley
     (primary), BNP Paribas, Vontobel, Nordea, SEB. For this thesis pulse
-    we restrict to MS via Avanza Markets for commission-free execution.
-  - TIPS-based instruments (direct real yield exposure) NOT available.
-    Trade nominal T-Note as proxy and accept basis risk.
-  - DXY-basket instruments NOT available as single product.
-    Trade EUR/USD as primary proxy with USD/SEK supplementary.
+    we restrict to MS via Avanza Markets for commission-free execution."
+  - "TIPS-based instruments (direct real yield exposure) NOT available.
+    Trade nominal T-Note as proxy and accept basis risk."
+  - "DXY-basket instruments NOT available as single product.
+    Trade EUR/USD as primary proxy with USD/SEK supplementary."
