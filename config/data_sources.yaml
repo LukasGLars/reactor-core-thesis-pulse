@@ -1,0 +1,273 @@
+# ============================================================================
+# DATA SOURCES
+# ============================================================================
+# Reference series used to compute trigger values for each signal.
+# Distinct from `instruments.yaml` — data sources drive triggers,
+# instruments execute trades.
+#
+# Quality criteria scored (HIGH / MEDIUM / LOW / NONE):
+#   - Authority: primary issuer/regulator/exchange vs aggregator
+#   - History: years of data available
+#   - Frequency: daily / weekly / monthly
+#   - Lag: how stale is "current" data
+#   - License: usable in personal trading system
+#   - API: programmatic stable access
+#
+# Last verified: 2026-05-11
+# ============================================================================
+
+signals:
+
+  real_yield:
+    primary:
+      series: DFII10
+      name: 10Y Treasury Constant Maturity, Inflation-Indexed
+      provider: Federal Reserve Board of Governors (H.15)
+      access: FRED API (https://fred.stlouisfed.org/series/DFII10)
+      history_start: 2003-01-02
+      history_years: 23
+      frequency: daily
+      lag: T+1
+      license: Public domain (citation requested)
+      revisions: Tracked via ALFRED
+      authority: HIGH
+      quality: EXCELLENT
+    secondary:
+      series: DGS10
+      name: 10Y Treasury Constant Maturity (nominal)
+      provider: Federal Reserve Board of Governors (H.15)
+      access: FRED API
+      history_start: 1962-01-02
+      history_years: 64
+      frequency: daily
+      use: Compute breakeven inflation as DGS10 - DFII10; longer history for nominal-yield backtests
+      quality: EXCELLENT
+
+  dollar_strength:
+    primary:
+      series: DTWEXBGS
+      name: Nominal Broad U.S. Dollar Index (Fed)
+      provider: Federal Reserve Board of Governors (H.10)
+      access: FRED API
+      history_start: 2006-01-02
+      history_years: 20
+      frequency: daily
+      lag: T+1
+      license: Public domain
+      authority: HIGH
+      quality: EXCELLENT
+      note: |
+        DTWEXBGS is the Fed's trade-weighted broad dollar index — methodologically
+        cleaner than DXY for measuring actual dollar strength. Different basket
+        than ICE DXY (covers ~26 currencies vs DXY's 6).
+    secondary:
+      series: DXY (ICE U.S. Dollar Index)
+      name: ICE U.S. Dollar Index
+      provider: Intercontinental Exchange (ICE Futures)
+      access:
+        - Yahoo Finance ticker DX-Y.NYB or ^NYICDX (free, unofficial API)
+        - Stooq.com (free)
+        - Investing.com (free with restrictions)
+      history_start: 1971
+      history_years: 55
+      frequency: daily
+      lag: T+0 (live during trading hours, daily close end-of-day)
+      license:
+        free_tier: Personal use only; redistribution restricted
+        official_api: ICE Data Services (paid)
+      authority: HIGH (direct ICE basket calculation)
+      quality: GOOD
+      note: |
+        Familiar/conventional DXY level (~98 range). Use as reference for
+        thresholds users intuitively think in DXY terms (e.g. "DXY 115 invalidation").
+        For derivation script, prefer DTWEXBGS for stable API; use DXY as cross-check.
+    pre_2006_extension:
+      series: TWEXB (DISCONTINUED)
+      history: 1995-2019
+      use: Extend DTWEXBGS history backward; small methodology break at 2006
+      quality: GOOD (with caveats)
+
+  gold:
+    primary:
+      series: GC=F
+      name: CME Gold futures (front month)
+      provider: CME Group via Yahoo Finance
+      access: yahoo_history() in thesis_pulse.py (existing implementation)
+      history_start: ~2000
+      history_years: 25+
+      frequency: daily (CME trading days)
+      lag: T+0 (intraday updates during CME hours)
+      license: Free for personal use; redistribution restricted
+      authority: GOOD (futures contract, exchange-cleared)
+      quality: GOOD
+      rationale: |
+        This is what the live pulse already uses. Internal consistency for
+        the GS ratio (paired with SI=F, same provider/methodology/timing).
+        Aligns with Avanza mini future underlying (futures, not LBMA spot).
+        Working reliably in production — switching to a "more authoritative"
+        source would introduce basis differences without solving a real problem.
+    fallback:
+      series: GOLDAMGBD228NLBM (LBMA AM Fix via FRED)
+      provider: ICE Benchmark Administration / LBMA
+      access: FRED API
+      use: |
+        Resilience backup if Yahoo API breaks.
+        Long-history backtest extension (58 years available).
+        Cross-check for data integrity audits.
+      quality: EXCELLENT (as fallback)
+
+  silver:
+    primary:
+      series: SI=F
+      name: CME Silver futures (front month)
+      provider: CME Group via Yahoo Finance
+      access: yahoo_history() in thesis_pulse.py (existing implementation)
+      history_start: ~2000
+      history_years: 25+
+      frequency: daily (CME trading days)
+      lag: T+0 (intraday updates during CME hours)
+      license: Free for personal use; redistribution restricted
+      authority: GOOD (futures contract, exchange-cleared)
+      quality: GOOD
+      rationale: |
+        This is what the live pulse already uses. Avoids LBMA Silver Price
+        license complexity (IBA requires commercial license for transactions
+        and pricing activities). Pairs cleanly with GC=F for GS ratio
+        consistency. Aligns with Avanza mini future underlying.
+        Working reliably in production.
+    fallback:
+      series: LBMA Silver Price via Nasdaq Data Link (LBMA/SILVER)
+      provider: ICE Benchmark Administration / LBMA
+      access: Nasdaq Data Link API (free tier with API key, license-permitting)
+      use: Cross-check only; license restrictions limit primary use
+      quality: GOOD (with license caveats)
+
+  gold_silver_ratio:
+    derivation: gold_price / silver_price
+    primary_data: Computed from GC=F / SI=F (same Yahoo Finance source)
+    history_years: 25+
+    frequency: daily
+    quality: GOOD
+    rationale: |
+      Both legs from same provider, same methodology, same timing —
+      cleanest internal consistency for ratio computation. Matches what
+      the live pulse computes today. Switching either leg to a different
+      source (e.g. LBMA gold + futures silver) would introduce timing
+      and methodology asymmetries in the ratio without solving a real
+      problem.
+
+  uranium:
+    primary:
+      series: PURANUSDM
+      name: Global Price of Uranium (IMF)
+      provider: International Monetary Fund
+      access: FRED API
+      history_start: 1992-01
+      history_years: 34
+      frequency: monthly (NOT daily)
+      lag: ~2 weeks
+      license: Copyrighted, citation required
+      authority: HIGH
+      quality: GOOD for backtest, INSUFFICIENT for daily trigger
+    daily_proxy:
+      series: U.UN (Sprott Physical Uranium Trust on TSX) or SRUUF (US OTC)
+      provider: Sprott Asset Management — public market price
+      access:
+        - Yahoo Finance: U.UN.TO or SRUUF (free)
+        - Sprott website: NAV updated daily
+      history_start: 2021-07 (trust launch)
+      history_years: 5
+      frequency: daily
+      lag: T+0
+      license: Free
+      quality: GOOD (limited history)
+      note: |
+        Sprott trust IS the tradeable proxy you'd execute through (via mini
+        future on SPROTT). So data source = instrument underlying — clean
+        but only 5 years of history. For pre-2021 backtest, must use monthly
+        PURANUSDM and accept lower resolution.
+    industry_indicator:
+      series: UxC U3O8 Spot Price
+      provider: Ux Consulting (industry standard)
+      access: Subscription only
+      license: Commercial subscription required
+      quality: EXCELLENT (industry standard) but PAID
+      note: Skip unless willing to pay subscription.
+
+  oil_brent:
+    primary:
+      series: DCOILBRENTEU
+      name: Brent Crude Oil Spot - Europe
+      provider: U.S. Energy Information Administration (EIA)
+      access: FRED API
+      history_start: 1987-05-20
+      history_years: 38
+      frequency: daily
+      lag: T+1
+      license: Public domain
+      authority: HIGH
+      quality: EXCELLENT
+
+  oil_wti:
+    primary:
+      series: DCOILWTICO
+      name: WTI Crude Oil Spot - Cushing OK
+      provider: U.S. Energy Information Administration (EIA)
+      access: FRED API
+      history_start: 1986-01-02
+      history_years: 40
+      frequency: daily
+      lag: T+1
+      license: Public domain
+      authority: HIGH
+      quality: EXCELLENT
+
+  brent_wti_spread:
+    derivation: DCOILBRENTEU - DCOILWTICO
+    primary_data: FRED (both legs)
+    history_years: 38
+    frequency: daily
+    quality: EXCELLENT
+    note: |
+      Both series from same provider (EIA) with same methodology and timing —
+      cleanest possible spread calculation.
+
+# ============================================================================
+# DATA QUALITY SUMMARY PER SIGNAL
+# ============================================================================
+
+quality_summary:
+  real_yield:        EXCELLENT
+  dollar_strength:   EXCELLENT (DTWEXBGS primary; DXY for familiarity)
+  gold:              GOOD (Yahoo GC=F primary, matches live pulse; FRED LBMA fallback)
+  silver:            GOOD (Yahoo SI=F primary, matches live pulse; LBMA fallback)
+  gold_silver_ratio: GOOD (computed from same-source futures; clean ratio)
+  uranium:           MIXED (monthly IMF for backtest; daily Sprott for trigger; 5yr history limit)
+  oil_brent:         EXCELLENT
+  oil_wti:           EXCELLENT
+  brent_wti_spread:  EXCELLENT
+
+# ============================================================================
+# FRED API ACCESS
+# ============================================================================
+
+fred_access:
+  base_url: https://api.stlouisfed.org/fred/series/observations
+  api_key_required: true (free, no rate limits for personal use)
+  api_key_signup: https://fred.stlouisfed.org/docs/api/api_key.html
+  rate_limits: 120 requests/minute (generous)
+  python_library: fredapi (recommended) or direct requests
+  alternative_csv: https://fred.stlouisfed.org/graph/fredgraph.csv?id=SERIES_ID
+    (no API key, but some access restrictions from automated requests)
+
+# ============================================================================
+# OPEN ITEMS
+# ============================================================================
+
+open_items:
+  - "Yahoo Finance reliability: GC=F, SI=F, and DXY proxy all depend on Yahoo's
+    unofficial API which has no SLA and breaks periodically. Implement fallback
+    handling so the pulse degrades gracefully (use cached value + STALE flag)
+    rather than failing silently. Consider Stooq as secondary source for FX."
+  - "Uranium pre-2021 daily data: no free source. Either pay UxC subscription or
+    accept monthly resolution for backtests covering 2012-2020 cycle."

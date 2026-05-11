@@ -1,0 +1,51 @@
+# ============================================================================
+# THRESHOLDS
+# ============================================================================
+# Empirically derived trigger levels per signal.
+#
+# STATUS: NOT YET POPULATED
+#
+# The values previously used in the pulse config (RY_INVALIDATION=3.0,
+# DXY_INVALIDATION=115, GS_DEPLOY_TRIGGER=55, GS_INVALIDATION=90,
+# URANIUM_INVALIDATION=50, OIL_SPREAD_STRESS=20, OIL_SPREAD_ELEVATED=10)
+# were stipulated framework values, not derived from data.
+#
+# Next step: run derivation pipeline using data_sources.yaml series and
+# instruments.yaml execution layer to produce empirically optimized
+# thresholds with confidence metrics (hit rate, expected return,
+# max drawdown, breach frequency) at 3m / 6m / 12m horizons.
+#
+# Until populated, the pulse script should either:
+#   (a) display thresholds as PROVISIONAL with explicit annotation, or
+#   (b) suppress threshold-dependent status flags entirely.
+#
+# Last verified: 2026-05-11
+# ============================================================================
+
+status: pending_derivation
+
+signals:
+  real_yield: {}
+  dollar_strength: {}
+  gold: {}
+  silver: {}
+  gold_silver_ratio: {}
+  uranium: {}
+  brent_wti_spread: {}
+
+derivation_methodology:
+  steps:
+    - "1. Distribution baseline: pull 20+ years of reference series; compute percentiles"
+    - "2. Signal-to-noise: identify candidate thresholds that fire rarely enough to be meaningful, often enough to be testable"
+    - "3. Forward return testing: at 3m/6m/12m horizons, score trade outcomes in actual instrument"
+    - "4. Knock-out survival: at what leverage does the trade survive post-breach volatility"
+    - "5. Sensitivity: how robust is the optimal to small perturbations"
+  output_per_signal:
+    - optimal_threshold
+    - optimal_leverage
+    - hit_rate
+    - expected_return
+    - max_drawdown
+    - breach_frequency
+    - sensitivity_band       # threshold ± X% still works
+    - confidence: HIGH|MEDIUM|LOW
