@@ -1,0 +1,199 @@
+SILVER DEPLOYMENT RULE DERIVATION REPORT
+================================================================================
+Generated:   2026-05-12
+Hypotheses:  A=GSR high+reverting | B=silver drawdown | C=A AND B
+Cool-off:    regime-exit (no re-entry until GSR < derived median)
+Data:        GC=F / SI=F (Yahoo Finance, daily -> monthly)
+Period:      2000-09 to 2026-05  (263 months)
+
+================================================================================
+SECTION 1 -- REFERENCE STATISTICS (derived from full history)
+================================================================================
+
+GSR (Gold / Silver Ratio):
+  Median:          68.36   <- regime-exit cool-off level
+  Mean:            69.14
+  Stdev:           13.22
+  75th percentile: 79.23
+  85th percentile: 83.42
+  95th percentile: 89.37
+
+Silver ($/oz):
+  Median:          $16.95
+  Mean:            $18.84
+  Stdev:           $11.95
+
+Silver drawdown distribution -- % below trailing N-month high:
+  (Higher percentile = more severe historical drawdown)
+  Lookback       25th     50th     75th     90th
+  ------------------------------------------
+  6m               0.5%       6.6%      14.4%      21.4%
+  12m               2.1%       9.9%      18.5%      32.0%
+  24m               4.9%      14.6%      28.9%      43.1%
+
+Derived thresholds for HIGH sweep (median multiples):
+  1.2x median -> GSR > 82.0
+  1.3x median -> GSR > 88.9
+  1.4x median -> GSR > 95.7
+  1.5x median -> GSR > 102.5
+
+================================================================================
+SECTION 2 -- HYPOTHESIS A: GSR HIGH AND REVERTING
+================================================================================
+  (regime-exit cool-off at GSR < 68.36)
+
+  High               Rev            H    N    Hit%    Ret%    MAE%     RAS Conf
+  ---------------------------------------------------------------------------
+  pct95              roc1m         24    4    75%  118.42   -5.87  104.09 LOW
+  pct85              roc1m         24    5    80%   91.96   -9.83   79.77 LOW
+  pct75              roc3m         24    8    88%   84.98   -5.82   73.05 HIGH
+  pct75              roc3m         18    8    75%   78.53   -5.82   70.37 HIGH
+  pct75              roc1m         24    7    71%   74.20  -10.96   66.60 MEDIUM
+  pct85              roc3m         24    5   100%   78.40   -5.89   63.68 LOW
+  pct75              drop10        18    5    60%   59.05   -5.90   63.19 LOW
+  pct75              drop5         18    8    88%   72.26   -6.05   57.45 HIGH
+  pct75              drop5         24    8    88%   72.23   -6.29   57.18 HIGH
+  pct75              roc2m         24    6    83%   69.79   -8.07   56.40 MEDIUM
+  pct75              roc2m         18    6    83%   63.77   -8.07   52.89 MEDIUM
+  pct95              roc1m          9    5    80%   47.14   -4.70   49.79 LOW
+  pct75              ma_cross      24    6    83%   63.51   -6.55   47.83 MEDIUM
+  pct75              drop10        24    5    40%   40.04   -8.71   46.33 INSUFFICIENT
+  pct85              roc3m         18    5    60%   49.52   -5.89   45.81 LOW
+  pct85              drop5         24    5   100%   71.23   -5.86   44.78 LOW
+  pct95              roc1m         18    4    75%   48.18   -5.87   44.42 LOW
+  pct85              ma_cross      24    5    80%   62.67   -7.86   43.85 LOW
+  pct75              ma_cross      18    6    83%   48.84   -6.55   38.01 MEDIUM
+  pct85              roc2m         24    4    75%   60.97   -9.82   37.45 LOW
+
+================================================================================
+SECTION 3 -- HYPOTHESIS B: SILVER ABSOLUTE DRAWDOWN
+================================================================================
+  (regime-exit cool-off at GSR < 68.36)
+
+  Signal             H    N    Hit%    Ret%    MAE%     RAS Conf
+  -----------------------------------------------------------------
+  24m_p50           18   55    36%   13.15  -23.86   24.10 INSUFFICIENT
+  24m_p25           18   85    49%   22.07  -19.81   21.98 INSUFFICIENT
+  24m_p25           24   85    53%   23.93  -22.77   19.47 INSUFFICIENT
+  12m_p25           24   93    56%   23.56  -22.37   19.39 LOW
+  6m_p25            18   91    48%   15.78  -19.37   18.68 INSUFFICIENT
+  12m_p25           18   93    51%   16.97  -19.51   18.61 INSUFFICIENT
+  24m_p50           24   55    36%   10.66  -27.49   18.20 INSUFFICIENT
+  12m_p50           18   65    40%    7.65  -23.10   18.09 INSUFFICIENT
+  12m_p50           24   65    43%   13.15  -26.25   17.48 INSUFFICIENT
+  6m_p25            24   91    55%   19.44  -22.19   17.25 INSUFFICIENT
+  6m_p50            24   69    46%   13.29  -24.66   14.86 INSUFFICIENT
+  24m_p25           12   85    52%   14.21  -15.21   14.82 INSUFFICIENT
+  6m_p50            18   69    43%    7.85  -21.28   14.32 INSUFFICIENT
+  24m_p50           12   55    38%    2.25  -18.47   12.84 INSUFFICIENT
+  6m_p25            12   91    53%    8.08  -14.92   10.95 INSUFFICIENT
+  12m_p75           18   35    29%   -2.80  -25.54   10.94 INSUFFICIENT
+  12m_p25           12   93    53%    7.45  -15.13   10.69 INSUFFICIENT
+  6m_p75            18   38    34%   -2.82  -25.14    9.96 INSUFFICIENT
+  24m_p25            9   85    53%    9.21  -13.23    9.90 INSUFFICIENT
+  12m_p75           24   35    29%    2.28  -29.45    9.77 INSUFFICIENT
+  6m_p25             9   91    53%    6.16  -12.54    8.81 INSUFFICIENT
+  12m_p25            9   93    53%    5.02  -12.80    8.53 INSUFFICIENT
+  12m_p25            6   93    53%    2.77  -11.10    7.97 INSUFFICIENT
+  24m_p50            9   55    44%   -1.24  -15.51    7.84 INSUFFICIENT
+  24m_p25            6   85    53%    3.32  -11.50    7.58 INSUFFICIENT
+  12m_p50           12   65    42%   -2.92  -17.64    7.26 INSUFFICIENT
+  6m_p75            24   38    34%    0.64  -29.15    7.19 INSUFFICIENT
+  6m_p25             6   91    52%    2.31  -11.07    7.17 INSUFFICIENT
+  6m_p50            12   69    46%    0.16  -16.23    6.52 INSUFFICIENT
+  24m_p75           18   33    12%  -18.69  -32.06    5.98 INSUFFICIENT
+  6m_p50             6   69    46%   -0.82  -12.24    5.97 INSUFFICIENT
+  24m_p75           24   33    15%  -15.89  -35.70    5.89 INSUFFICIENT
+  12m_p50            6   65    48%   -1.60  -12.84    5.87 INSUFFICIENT
+  12m_p50            9   65    46%   -2.44  -15.18    5.81 INSUFFICIENT
+  6m_p75             6   38    50%   -0.83  -12.21    5.81 INSUFFICIENT
+  24m_p50            6   55    49%   -2.24  -12.73    5.73 INSUFFICIENT
+  6m_p50             9   69    49%   -0.01  -13.96    5.66 INSUFFICIENT
+  12m_p75            6   35    49%   -2.52  -11.05    3.52 INSUFFICIENT
+  6m_p75             9   38    42%   -4.37  -14.27    3.20 INSUFFICIENT
+  6m_p75            12   38    34%   -8.01  -18.17    3.06 INSUFFICIENT
+  12m_p75            9   35    40%   -5.19  -14.61    2.79 INSUFFICIENT
+  12m_p75           12   35    31%   -9.83  -19.08    2.49 INSUFFICIENT
+  24m_p75            6   33    33%   -9.73  -15.80    1.71 INSUFFICIENT
+  24m_p75            9   33    27%  -12.74  -20.12    1.36 INSUFFICIENT
+  24m_p75           12   33    18%  -17.60  -24.37    0.96 INSUFFICIENT
+
+================================================================================
+SECTION 4 -- HYPOTHESIS C: A AND B COMBINED
+================================================================================
+
+    H    N    Hit%    Ret%    MAE%     RAS Conf
+  --------------------------------------------------
+    6    3    67%    6.53   -6.40   10.67 INSUFFICIENT
+    9    3    67%   12.11   -7.83   16.53 INSUFFICIENT
+   12    3   100%   27.35   -7.83   20.66 INSUFFICIENT
+   18    3    67%   46.72   -7.83   41.70 INSUFFICIENT
+   24    3    67%  137.14   -7.83  118.04 INSUFFICIENT
+
+================================================================================
+SECTION 5 -- WINNER SELECTION AND PER-EVENT BREAKDOWN
+================================================================================
+
+  WINNER: Hypothesis A
+  HIGH signal:   pct95
+  REV signal:    roc1m
+  Horizon:       24m
+  N events:      4
+  Hit rate:      75%
+  Avg return:    118.42%
+  Avg MAE:       -5.87%
+  RAS:           104.09
+  Confidence:    LOW
+
+  Per-event breakdown:
+  Entry       Silver      GSR      Ret%      MAE%      RAS  Result
+  --------  --------  -------  --------  --------  -------  ------
+  2003-03       4.46     75.3     62.25      0.00   62.251  HIT 
+  2008-12      11.27     78.4    331.09      0.00  331.091  HIT 
+  2015-01      17.19     74.4     -3.63    -19.88   -0.183  MISS
+  2018-09      14.62     81.5     83.96     -3.62   23.208  HIT 
+  2025-05   (no forward data)
+
+================================================================================
+SECTION 6 -- STIPULATED PARAMETERS AND SENSITIVITY CHECK
+================================================================================
+
+  Stipulated (not derived):
+    Rolling window for trailing percentiles: 5yr  [stipulated]
+    Resampling: monthly (month-end)  [stipulated]
+    RAS formula: return / max(|MAE|, 1%)  [stipulated]
+    Regime-exit level: GSR median = 68.36  [derived]
+
+  Sensitivity -- re-run winner with 3yr and 7yr rolling windows:
+  Window       N   Hit%    Ret%     RAS Unchanged?
+  --------------------------------------------------
+  5yr (base)     4   75%  118.42  104.09
+  3yr             5   40%   76.25   78.40 NO
+  7yr             4   75%  108.14   99.05 YES
+
+================================================================================
+SECTION 7 -- BASELINE DCA COMPARISON AND HONEST VERDICT
+================================================================================
+
+  Horizon: 24m
+  Metric                                 Rule  Monthly DCA
+  --------------------------------------------------------
+  N entries                                 4          239
+  Hit rate                               75%         68%
+  Avg return %                         118.42        36.20
+  Avg max adverse %                     -5.87       -16.40
+  Risk-adj score                       104.09        23.71
+  Idle cash periods                      98%           0%
+  Effective return (ret x deploy%)      1.98%       36.20%
+
+  HONEST VERDICT:
+    Per-trade return: rule 118.42% vs DCA 36.20% -> RULE
+    Risk-adj score:   rule 104.09 vs DCA 23.71 -> RULE
+    Effective return (after 98% idle): 1.98% vs DCA 36.20% -> DCA
+
+    CONCLUSION: Rule selects better entry points per trade but idle cash drag
+    erodes total effective return vs DCA. Rule useful for limiting downside;
+    DCA wins on total silver accumulation. If idle cash earns T-bill rates,
+    recalculate with opportunity rate included.
+
+================================================================================
