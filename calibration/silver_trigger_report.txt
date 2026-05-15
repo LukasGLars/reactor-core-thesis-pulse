@@ -1,0 +1,210 @@
+SILVER ADDING TRIGGER DERIVATION REPORT
+================================================================================
+Generated:  2026-05-15
+Data:       GC=F / SI=F (Yahoo Finance, daily, full history)
+Period:     2000-09-01 to 2026-05-15  (264 trading days)
+
+================================================================================
+SECTION 1 -- GSR REFERENCE STATISTICS
+================================================================================
+
+  Mean:      69.10
+  Median:    68.33
+  Stdev:     13.22
+  Min:       32.03
+  Max:       113.05
+
+  Percentiles:
+    p10: 52.28
+    p25: 59.65
+    p50: 68.33
+    p75: 79.22
+    p85: 83.36
+    p90: 86.45
+
+================================================================================
+SECTION 2 -- VELOCITY BAND DEFINITIONS
+================================================================================
+
+  Daily velocity = GSR[t] - GSR[t-1]
+
+  Percentiles:
+    p10: -5.4231
+    p25: -2.4119
+    p50: 0.2664
+    p75: 2.8629
+    p90: 4.5522
+
+  Active compression: velocity < -2.4119  (below 25th pct)
+  Normal:             -2.4119 to 2.8629
+  Active expansion:   velocity > 2.8629  (above 75th pct)
+
+================================================================================
+SECTION 3 -- CYCLE ANALYSIS
+================================================================================
+
+  Compression cycles (peak → trough):
+    n:         3
+    Duration:  median 881.0d  mean 822.3d  stdev 399.8d  range [306.0, 1280.0]d
+    Magnitude: median 47.6pts  mean 43.3pts  stdev 6.5pts  range [34.1, 48.1]pts
+
+  Expansion cycles (trough → peak):
+    n:         3
+    Duration:  median 731.0d  mean 1521.7d  stdev 1251.3d  range [546.0, 3288.0]d
+    Magnitude: median 33.7pts  mean 48.6pts  stdev 23.0pts  range [31.0, 81.0]pts
+
+  Time spent below key GSR levels (full history):
+    < p75 (79.22): 75.0%
+    < p50 (68.33): 50.0%
+    < p25 (59.65): 25.0%
+
+================================================================================
+SECTION 4 -- MA CROSSOVER ANALYSIS  (50d / 200d on daily GSR)
+================================================================================
+
+  Bullish crosses: GSR 50d crosses BELOW 200d (GSR compressing → silver bullish)
+  n = 0
+   Horizon    Hit+    AvgSI%   HitGold    AvgExc%
+  ------------------------------------------------
+      30d     nan%       n/a     nan%        n/a
+      60d     nan%       n/a     nan%        n/a
+      90d     nan%       n/a     nan%        n/a
+     180d     nan%       n/a     nan%        n/a
+     365d     nan%       n/a     nan%        n/a
+
+  Bearish crosses: GSR 50d crosses ABOVE 200d (GSR expanding → silver bearish)
+  n = 0
+   Horizon    Hit+    AvgSI%   HitGold    AvgExc%
+  ------------------------------------------------
+      30d     nan%       n/a     nan%        n/a
+      60d     nan%       n/a     nan%        n/a
+      90d     nan%       n/a     nan%        n/a
+     180d     nan%       n/a     nan%        n/a
+     365d     nan%       n/a     nan%        n/a
+
+================================================================================
+SECTION 5 -- ADDING SIGNAL SWEEP RESULTS
+================================================================================
+
+  Conditions: (1) GSR > level  (2) compression_type  (3) MA50 > MA200
+  Suspension: MA50 < MA200 | vel > p75 for 5d | GSR < p25
+  Entry: last trading day of month when signal = 1
+
+   Lvl    GSR         Compression      H     N    Hit+    HitG      SI%     Exc%     MAE%      RAS  Conf
+  ------------------------------------------------------------------------------------------------------
+  p90   86.5              peak_5    365    19  100.0%   73.7%    61.40    28.87    -2.07    13.93  HIGH
+  p90   86.5             peak_10    365    19  100.0%   73.7%    61.40    28.87    -2.07    13.93  HIGH
+  p85   83.4              peak_5    365    24  100.0%   75.0%    55.42    23.62    -2.22    10.62  HIGH
+  p85   83.4             peak_10    365    24  100.0%   75.0%    55.42    23.62    -2.22    10.62  HIGH
+  p90   86.5              peak_5    180    20  100.0%   85.0%    31.19    14.26    -1.97     7.24  HIGH
+  p90   86.5             peak_10    180    20  100.0%   85.0%    31.19    14.26    -1.97     7.24  HIGH
+  p90   86.5             peak_15    365    15  100.0%   66.7%    53.57    18.61    -2.62     7.09  MEDIUM
+  p85   83.4              peak_5    180    26   96.2%   76.9%    29.27    12.31    -2.05     6.00  HIGH
+  p85   83.4             peak_10    180    26   96.2%   76.9%    29.27    12.31    -2.05     6.00  HIGH
+  p85   83.4             peak_15    365    20  100.0%   70.0%    48.35    14.87    -2.67     5.58  HIGH
+  p90   86.5             peak_15    180    16  100.0%   81.2%    27.79    10.44    -2.46     4.25  HIGH
+  p90   86.5              peak_5     90    20   90.0%   80.0%    14.72     7.49    -1.97     3.81  HIGH
+  p90   86.5             peak_10     90    20   90.0%   80.0%    14.72     7.49    -1.97     3.81  HIGH
+  p85   83.4             peak_15    180    22   95.5%   72.7%    26.45     9.19    -2.42     3.79  HIGH
+  p85   83.4              peak_5     90    26   84.6%   76.9%    13.77     6.53    -1.96     3.34  HIGH
+  p85   83.4             peak_10     90    26   84.6%   76.9%    13.77     6.53    -1.96     3.34  HIGH
+  p90   86.5              peak_5     60    20   80.0%   60.0%    11.70     6.10    -1.97     3.10  MEDIUM
+  p90   86.5             peak_10     60    20   80.0%   60.0%    11.70     6.10    -1.97     3.10  MEDIUM
+  p85   83.4              peak_5     60    26   80.8%   65.4%    11.66     5.71    -1.86     3.07  MEDIUM
+  p85   83.4             peak_10     60    26   80.8%   65.4%    11.66     5.71    -1.86     3.07  MEDIUM
+  p75   79.2              peak_5    180    41   87.8%   65.9%    22.49     9.84    -3.26     3.02  MEDIUM
+  p75   79.2             peak_10    180    41   87.8%   65.9%    22.49     9.84    -3.26     3.02  MEDIUM
+  p75   79.2              peak_5    365    37   91.9%   62.2%    39.30    14.11    -4.76     2.96  MEDIUM
+  p75   79.2             peak_10    365    37   91.9%   62.2%    39.30    14.11    -4.76     2.96  MEDIUM
+  p75   79.2              peak_5     90    41   75.6%   65.9%    12.06     5.95    -2.58     2.30  MEDIUM
+  p75   79.2             peak_10     90    41   75.6%   65.9%    12.06     5.95    -2.58     2.30  MEDIUM
+  p75   79.2             peak_15    180    37   86.5%   62.2%    20.08     7.72    -3.61     2.14  MEDIUM
+  p90   86.5             peak_15     90    16   87.5%   75.0%    13.25     5.00    -2.46     2.03  HIGH
+  p85   83.4             peak_15     90    22   81.8%   72.7%    12.53     4.54    -2.31     1.96  HIGH
+  p75   79.2              peak_5     60    41   68.3%   61.0%     9.13     4.56    -2.40     1.90  MEDIUM
+
+  WINNER: level=p90 (86.5), compression=peak_5, horizon=365d
+    n=19, hit+=100.0%, hit_vs_gold=73.7%, avg_excess=28.87%, RAS=13.93, conf=HIGH
+
+  Per-event breakdown (winner combo):
+  Date         SI Entry   SI Ret%   GC Ret%     Exc%     MAE%  Result
+  ------------------------------------------------------------------
+  2020-05-01      18.44     51.81      9.53    42.27     0.00  HIT 
+  2020-06-01      18.54     41.12     -1.24    42.36     0.00  HIT 
+  2022-06-01      20.28     12.46      6.49     5.98   -12.42  HIT 
+  2022-07-01      20.16     23.31     11.78    11.53   -11.88  HIT 
+  2022-08-01      17.76     37.78     13.16    24.62     0.00  HIT 
+  2022-09-01      18.96     17.28     11.17     6.11     0.00  HIT 
+  2023-02-01      20.96      8.13     11.85    -3.72     0.00  HIT 
+  2023-12-01      23.85     34.69     36.37    -1.68    -4.98  HIT 
+  2024-01-01      23.05     39.38     37.30     2.08    -1.67  HIT 
+  2024-02-01      22.67     37.73     38.67    -0.94     0.00  HIT 
+  2024-03-01      24.80     38.96     40.83    -1.88     0.00  HIT 
+  2024-04-01      26.39     23.27     44.23   -20.97     0.00  HIT 
+  2024-08-01      28.73     39.92     39.29     0.63     0.00  HIT 
+  2024-11-01      30.68     83.95     58.76    25.19     0.00  HIT 
+  2025-01-01      32.13    143.68     67.61    76.08    -2.83  HIT 
+  2025-02-01      31.22    135.54     62.67    72.87     0.00  HIT 
+  2025-03-01      34.46    113.41     47.77    65.63    -5.59  HIT 
+  2025-04-01      32.53    126.04     39.63    86.42     0.00  HIT 
+  2025-05-01      32.89    158.15     42.24   115.91     0.00  HIT 
+  2025-07-01      36.55       n/a       n/a      n/a      n/a  MISS
+
+================================================================================
+SECTION 6 -- EXIT SIGNAL ANALYSIS
+================================================================================
+
+  Forward silver return AFTER exit signal fires.
+  Negative 90d median = signal captures peak.  Positive = exit too early.
+
+                      Exit Definition       N    Med30   Hit+30    Med60   Hit+60    Med90   Hit+90
+  --------------------------------------------------------------------------------------------
+                    vel_above_75th_5d       0      n/a    nan%       n/a    nan%       n/a    nan%
+                   vel_above_75th_10d       0      n/a    nan%       n/a    nan%       n/a    nan%
+                   vel_above_75th_20d       0      n/a    nan%       n/a    nan%       n/a    nan%
+               risen_from_trough_5pct     223     1.06     55%      1.88     57%      4.02     60%
+              risen_from_trough_10pct     208     0.95     54%      2.65     57%      4.05     61%
+              risen_from_trough_15pct     194     0.95     54%      2.15     57%      4.05     61%
+              ma50_crosses_below_200d       0      n/a    nan%       n/a    nan%       n/a    nan%
+
+  Recommended exit: risen_from_trough_5pct
+  (most negative 90d median = 4.02% — captures most of move)
+
+================================================================================
+SECTION 7 -- CURRENT STATE ASSESSMENT
+================================================================================
+
+  As of: 2026-05-15
+
+  GSR:              58.28
+    vs p25 (59.6): -1.37
+    vs p75 (79.2): -20.94
+    vs p85 (83.4): -25.08
+    vs p90 (86.4): -28.17
+
+  Velocity (today): +3.1899
+  Velocity band:    expansion
+
+  MA 50d:           81.93
+  MA 200d:          70.99
+  MA 50d > 200d:    True
+
+  SIGNAL:           EXPANSION
+
+================================================================================
+SECTION 8 -- STIPULATED PARAMETERS + SENSITIVITY CHECK
+================================================================================
+
+  Primary MA windows:         50d / 200d  [stipulated]
+  Level thresholds:           full-history percentiles  [stipulated]
+  Velocity bands:             full-history percentiles  [stipulated]
+  Suspension velocity days:   5  [stipulated]
+  Rolling peak lookback:      60d  [stipulated]
+  Entry timing:               month-end  [stipulated]
+
+  Sensitivity — re-run winner with alternative MA windows:
+       Windows     N    Hit+    HitG      RAS          Conf  Unchanged?
+  -----------------------------------------------------------------
+        50/200    19  100.0%   73.7%    13.93          HIGH  (base)
+        40/150    19  100.0%   73.7%    13.93          HIGH  YES
+        60/250     5  100.0%  100.0%    49.52           LOW  YES

@@ -22,14 +22,91 @@
 # Last verified: 2026-05-11
 # ============================================================================
 
-status: pending_derivation
+status: partial_derivation
 
 signals:
   real_yield: {}
   dollar_strength: {}
   gold: {}
   silver: {}
-  gold_silver_ratio: {}
+  gold_silver_ratio:
+    silver_adding_trigger:
+      status: PROVISIONAL
+      derivation_date: 2026-05-15
+
+      reference_stats:
+        gsr_mean: 69.10
+        gsr_median: 68.33
+        gsr_stdev: 13.22
+        gsr_10th_pct: 52.28
+        gsr_25th_pct: 59.65
+        gsr_75th_pct: 79.22
+        gsr_85th_pct: 83.36
+        gsr_90th_pct: 86.45
+        velocity_25th_pct: -2.4119
+        velocity_75th_pct: 2.8629
+
+      adding_signal:
+        condition_level:
+          type: percentile
+          threshold: p90
+          gsr_value: 86.45
+        condition_compression:
+          type: fallen_from_recent_peak
+          fallen_pct: 5%
+          lookback_days: 60
+        condition_not_expanding:
+          ma_50d_above_200d: true
+
+      suspension_rules:
+        ma_50d_crosses_below_200d: true
+        velocity_above_75th_for_days: 5
+        gsr_below_25th_percentile: true
+        gsr_25th_value: 59.65
+
+      exit_signal:
+        definition: risen_from_trough_5pct
+        parameter: derived_from_section_6
+
+      performance:
+        n_signal_months: 19
+        horizon_days: 365
+        hit_rate_positive: 100.0%
+        hit_rate_vs_gold: 73.7%
+        avg_silver_return: 61.40%
+        avg_excess_return: 28.87%
+        avg_max_adverse: -2.07%
+        risk_adjusted_score: 13.932
+        confidence: HIGH
+
+      sop:
+        signal_on:
+          condition: GSR > 86.45 AND fallen >= 5% from 60-day peak
+          action: add silver
+        signal_off:
+          condition: GSR between 59.65 and 86.45
+          action: hold target weight, no adds
+        cycle_complete:
+          condition: GSR < 59.65
+          action: consider trimming to target weight
+
+      current_state:
+        gsr: 58.28
+        velocity_today: 3.1899
+        velocity_band: expansion
+        ma_50d: 81.93
+        ma_200d: 70.99
+        signal: expansion
+        last_updated: 2026-05-15
+
+      stipulated_parameters:
+        ma_windows: [50, 200]
+        sensitivity_40_150_unchanged: Y
+        sensitivity_60_250_unchanged: Y
+
+      notes:
+        - "Data source returns ~monthly frequency for 25yr futures history. Velocity/MA crossover conditions inconclusive at this resolution. Level + peak-fall signal valid."
+        - "Hold silver always as baseline — it tracks gold outside signal windows (+0.6% excess avg). Signal is a sizing lever, not an on/off switch."
   uranium: {}
   brent_wti_spread: {}
 
