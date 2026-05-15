@@ -47,16 +47,43 @@ signals:
         velocity_75th_pct: 2.8629
 
       adding_signal:
-        condition_level:
-          type: percentile
-          threshold: p90
-          gsr_value: 86.45
-        condition_compression:
+        compression_requirement:
           type: fallen_from_recent_peak
           fallen_pct: 5%
           lookback_days: 60
-        condition_not_expanding:
-          ma_50d_above_200d: true
+          note: applies to both tiers — no adding into rising GSR
+
+        tier_1:
+          label: add
+          condition: GSR > 83.36 AND fallen >= 5% from 60-day peak
+          gsr_threshold: 83.36
+          percentile: p85
+          performance:
+            n_signal_months: 24
+            horizon_days: 365
+            hit_rate_positive: 100.0%
+            hit_rate_vs_gold: 75.0%
+            avg_silver_return: 55.42%
+            avg_excess_return: 23.62%
+            avg_max_adverse: -2.22%
+            risk_adjusted_score: 10.62
+            confidence: HIGH
+
+        tier_2:
+          label: add_more
+          condition: GSR > 86.45 AND fallen >= 5% from 60-day peak
+          gsr_threshold: 86.45
+          percentile: p90
+          performance:
+            n_signal_months: 19
+            horizon_days: 365
+            hit_rate_positive: 100.0%
+            hit_rate_vs_gold: 73.7%
+            avg_silver_return: 61.40%
+            avg_excess_return: 28.87%
+            avg_max_adverse: -2.07%
+            risk_adjusted_score: 13.93
+            confidence: HIGH
 
       suspension_rules:
         ma_50d_crosses_below_200d: true
@@ -68,23 +95,15 @@ signals:
         definition: risen_from_trough_5pct
         parameter: derived_from_section_6
 
-      performance:
-        n_signal_months: 19
-        horizon_days: 365
-        hit_rate_positive: 100.0%
-        hit_rate_vs_gold: 73.7%
-        avg_silver_return: 61.40%
-        avg_excess_return: 28.87%
-        avg_max_adverse: -2.07%
-        risk_adjusted_score: 13.932
-        confidence: HIGH
-
       sop:
-        signal_on:
-          condition: GSR > 86.45 AND fallen >= 5% from 60-day peak
+        tier_1_signal:
+          condition: GSR > 83.36 AND fallen >= 5% from 60-day peak
           action: add silver
+        tier_2_signal:
+          condition: GSR > 86.45 AND fallen >= 5% from 60-day peak
+          action: add more silver
         signal_off:
-          condition: GSR between 59.65 and 86.45
+          condition: GSR between 59.65 and 83.36
           action: hold target weight, no adds
         cycle_complete:
           condition: GSR < 59.65
