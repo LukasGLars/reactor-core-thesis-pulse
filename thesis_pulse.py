@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Reactor Core Thesis Pulse v1.0
+Reactor Core Thesis Pulse v2.0
 Daily thesis monitoring for 8-position portfolio.
-Runs via GitHub Actions — sends email with interpretation + raw data.
+Runs via GitHub Actions — sends email with raw data + recession tracker.
 """
 import requests, json, os, sys, smtplib, time
 from datetime import date
@@ -519,6 +519,10 @@ def fmt(val, decimals=2, prefix="", suffix=""):
 def fmt_bn(val):
     if val is None:
         return "n/a"
+    if isinstance(val, dict):
+        val = val.get("val")
+    if val is None:
+        return "n/a"
     return f"${val/1e9:.1f}B"
 
 def fmt_px(d):
@@ -556,7 +560,6 @@ HEDGES:
 - Silver: {facts['silver_px']} | 1m {facts['silver_1m']} | 3m {facts['silver_3m']} | {facts['silver_dd']} from 52wH
 - G/S ratio: {facts['gs']} (deploy trigger <55 = {facts['gs_dist_deploy']} pts away | invalidation >90 = {facts['gs_dist_inv']} pts away)
   Momentum: {facts['gs_chg_1d']} today, {facts['gs_chg_4w']} over 4 weeks — {facts['gs_velocity_label']}
-- Central bank gold demand (WGC/IFS, monthly): {facts['cb_gold_ttm']} TTM net | prior 12m {facts['cb_gold_prev']} | YoY change {facts['cb_gold_yoy']} | as of {facts['cb_gold_date']} ({facts['cb_gold_lag']} lag)
 
 CARRY:
 - LLY: price {facts['lly_px']} ({facts['lly_dd']} from 52wH) | revenue {facts['lly_rev']} {facts['lly_rev_yoy']} YoY ({facts['lly_rev_date']})
@@ -640,6 +643,195 @@ def send_email(subject, body):
     except Exception as e:
         print(f"Email error: {e}")
 
+# ── STALE FLAG ─────────────────────────────────────────────
+def stale_flag(date_str):
+    if not date_str:
+        return ""
+    try:
+        d = date.fromisoformat(str(date_str)[:10])
+        delta = (date.today() - d).days
+        return f"  S-{delta}D" if delta > 0 else ""
+    except Exception:
+        return ""
+
+
+# ── FRED LAST N ────────────────────────────────────────────
+def fred_last_n(series_id, n=15):
+    session = _make_session()
+    for attempt in range(1, 4):
+        try:
+            r = session.get(fred_url(series_id),
+                            headers={"User-Agent": "thesis-pulse/1.0"}, timeout=30)
+            r.raise_for_status()
+            obs = r.json().get("observations", [])
+            rows = [(o["date"], float(o["value"])) for o in obs
+                    if o.get("value") not in (".", "")]
+            return rows[-n:] if rows else []
+        except Exception:
+            time.sleep(0.5 * (2 ** (attempt - 1)))
+    return []
+
+
+# ── CAPE SCRAPER ───────────────────────────────────────────
+def get_cape():
+    try:
+        import re
+        r = requests.get("https://www.multpl.com/shiller-pe",
+                         headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200:
+            m = re.search(r'<div[^>]+id=["\']current-value["\'][^>]*>\s*([0-9]+(?:\.[0-9]+)?)', r.text)
+            if m:
+                return float(m.group(1))
+    except Exception:
+        pass
+    return None
+
+
+# ── RECESSION TRACKER ──────────────────────────────────────
+def compute_recession_signals(ry_val, ry_date):
+    import json as _json
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "calibration", "recession_config.json")
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = _json.load(f)
+    except Exception:
+        return None
+    ind_cfg = cfg["indicators"]
+    probs   = cfg["composite_probabilities"]
+    results = {}
+
+    # T10Y3M
+    val, _, dt = fred_latest("T10Y3M")
+    results["T10Y3M"] = {
+        "val": f"{val:.2f}" if val is not None else "n/a",
+        "thr": "0.0",
+        "sig": 1 if val is not None and val < 0 else 0,
+    }
+    # T10Y2Y
+    val, _, dt = fred_latest("T10Y2Y")
+    results["T10Y2Y"] = {
+        "val": f"{val:.2f}" if val is not None else "n/a",
+        "thr": "0.0",
+        "sig": 1 if val is not None and val < 0 else 0,
+    }
+    # DFII10 — reuse fetched ry_val
+    results["DFII10"] = {
+        "val": f"{ry_val:.2f}" if ry_val is not None else "n/a",
+        "thr": "1.0",
+        "sig": 1 if ry_val is not None and ry_val > 1.0 else 0,
+    }
+    # ICSA
+    val, _, dt = fred_latest("ICSA")
+    thr = ind_cfg["ICSA"]["threshold_val"]
+    results["ICSA"] = {
+        "val": f"{val/1000:.1f}K" if val is not None else "n/a",
+        "thr": f"{thr/1000:.0f}.0K",
+        "sig": 1 if val is not None and val > thr else 0,
+    }
+    # UMCSENT
+    val, _, dt = fred_latest("UMCSENT")
+    thr = ind_cfg["UMCSENT"]["threshold_val"]
+    results["UMCSENT"] = {
+        "val": f"{val:.1f}" if val is not None else "n/a",
+        "thr": f"{thr:.0f}.0",
+        "sig": 1 if val is not None and val < thr else 0,
+    }
+    # INDPRO — 3 consecutive monthly declines
+    rows = fred_last_n("INDPRO", n=6)
+    sig = 0
+    if len(rows) >= 4:
+        recent = [v for _, v in rows[-4:]]
+        sig = 1 if all(recent[i] < recent[i-1] for i in range(1, len(recent))) else 0
+    results["INDPRO"] = {
+        "val": f"{rows[-1][1]:.1f}" if rows else "n/a",
+        "thr": "3mo↓",
+        "sig": sig,
+    }
+    # MANEMP — 3 consecutive monthly declines
+    rows = fred_last_n("MANEMP", n=6)
+    sig = 0
+    if len(rows) >= 4:
+        recent = [v for _, v in rows[-4:]]
+        sig = 1 if all(recent[i] < recent[i-1] for i in range(1, len(recent))) else 0
+    results["MANEMP"] = {
+        "val": f"{rows[-1][1]/1000:.2f}M" if rows else "n/a",
+        "thr": "3mo↓",
+        "sig": sig,
+    }
+    # PCEPILFE — YoY > 2.0%
+    rows = fred_last_n("PCEPILFE", n=14)
+    sig = 0
+    yoy_str = "n/a"
+    if len(rows) >= 13:
+        curr_v, prev_v = rows[-1][1], rows[-13][1]
+        yoy = (curr_v - prev_v) / prev_v * 100 if prev_v else 0
+        yoy_str = f"{yoy:.1f}%"
+        sig = 1 if yoy > ind_cfg["PCEPILFE"]["threshold_val"] else 0
+    results["PCEPILFE"] = {"val": yoy_str, "thr": "2.0%", "sig": sig}
+    # DFF — fed cutting 3 consecutive months (use FEDFUNDS monthly)
+    val_dff, _, dt_dff = fred_latest("DFF")
+    rows = fred_last_n("FEDFUNDS", n=6)
+    sig = 0
+    if len(rows) >= 4:
+        recent = [v for _, v in rows[-4:]]
+        sig = 1 if all(recent[i] < recent[i-1] for i in range(1, len(recent))) else 0
+    results["DFF"] = {
+        "val": f"{val_dff:.2f}%" if val_dff is not None else "n/a",
+        "thr": "cut 3mo",
+        "sig": sig,
+    }
+    # VIXCLS
+    val, _, dt = fred_latest("VIXCLS")
+    thr = ind_cfg["VIXCLS"]["threshold_val"]
+    results["VIXCLS"] = {
+        "val": f"{val:.1f}" if val is not None else "n/a",
+        "thr": f"{thr:.0f}.0",
+        "sig": 1 if val is not None and val > thr else 0,
+    }
+    # SP500 — below 10-month MA
+    rows = fred_last_n("SP500", n=12)
+    sig = 0
+    thr_str = "<10mo MA"
+    if rows:
+        sp_val = rows[-1][1]
+        val_str = f"{sp_val:.0f}"
+        if len(rows) >= 10:
+            ma10 = sum(v for _, v in rows[-10:]) / 10
+            thr_str = f"<{ma10:.0f}"
+            sig = 1 if sp_val < ma10 else 0
+    else:
+        val_str = "n/a"
+    results["SP500"] = {"val": val_str if rows else "n/a", "thr": thr_str, "sig": sig}
+    # BAA_AAA spread
+    baa, _, _ = fred_latest("BAA")
+    aaa, _, _ = fred_latest("AAA")
+    spread = round(baa - aaa, 2) if baa is not None and aaa is not None else None
+    thr = ind_cfg["CREDIT_SPREAD"]["threshold_val"]
+    results["BAA_AAA_spread"] = {
+        "val": f"{spread:.2f}%" if spread is not None else "n/a",
+        "thr": f"{thr}%",
+        "sig": 1 if spread is not None and spread > thr else 0,
+    }
+    # CAPE
+    cape = get_cape()
+    thr = ind_cfg["CAPE"]["threshold_val"]
+    results["CAPE"] = {
+        "val": f"{cape:.1f}" if cape is not None else "n/a",
+        "thr": f"{thr:.0f}.0",
+        "sig": 1 if cape is not None and cape > thr else 0,
+    }
+
+    composite = sum(r["sig"] for r in results.values())
+    prob = probs.get(str(min(composite, 10)), {})
+    return {
+        "indicators": results,
+        "composite":  composite,
+        "p6m":        prob.get("p6m",  0),
+        "p12m":       prob.get("p12m", 0),
+    }
+
+
 # ── MAIN ───────────────────────────────────────────────────
 def main():
     today = date.today().isoformat()
@@ -678,13 +870,10 @@ def main():
     print("Fetching oil term spread...")
     oil_spot, oil_fwd, oil_spread, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
 
-    print("Fetching central bank gold (IMF IFS)...")
-    cb_ttm, cb_prev, cb_date, cb_lag = imf_central_bank_gold()
-    if cb_ttm is None:
-        print("  IMF unavailable — trying WGC fallback...")
-        cb_ttm, cb_prev, cb_date, cb_lag = wgc_central_banks()
+    print("Fetching recession indicators...")
+    rec = compute_recession_signals(ry_val, ry_date)
 
-    # Compute
+    # Compute derived values
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
     gs_ratio_1d_ago  = (gold["price"] - gold["pts_1d"]) / (silver["price"] - silver["pts_1d"]) if gold and silver and gold.get("pts_1d") and silver.get("pts_1d") else None
     gs_ratio_4w_ago  = (gold["price"] - gold["pts_4w"]) / (silver["price"] - silver["pts_4w"]) if gold and silver and gold.get("pts_4w") and silver.get("pts_4w") else None
@@ -695,105 +884,21 @@ def main():
     capex_total      = sum(capex_vals)  if capex_vals  else None
     capex_total_prev = sum(capex_prevs) if capex_prevs else None
 
-    # Facts for prompt
-    facts = {
-        "today":          today,
-        "ry":             fmt(ry_val, 2, suffix="%"),
-        "ry_dist":        fmt(300 - ry_val * 100, 0) if ry_val else "n/a",
-        "ry_signal":      ("TAILWIND" if ry_val < 2.0 else "NEUTRAL" if ry_val < 2.5 else "WATCH" if ry_val < 3.0 else "INVALIDATION") if ry_val else "n/a",
-        "ry_chg_1d":      fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a",
-        "ry_chg_4w":      fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a",
-        "ry_weeks_to_inv": fmt(
-            (300 - ry_val * 100) / ((ry_val - ry_4w) * 100 / 4), 0, suffix=" weeks to invalidation (rising = unfavorable)"
-        ) if ry_val and ry_4w and (ry_val - ry_4w) > 0 else ("moving away from invalidation (falling = favorable)" if ry_val and ry_4w and ry_val < ry_4w else "n/a"),
-        "dxy":            fmt(dxy["price"], 2) if dxy else "n/a",
-        "dxy_dist":       fmt(115 - dxy["price"], 2) if dxy else "n/a",
-        "dxy_signal":     ("TAILWIND" if dxy["price"] < 100 else "NEUTRAL" if dxy["price"] < 105 else "WATCH" if dxy["price"] < 115 else "INVALIDATION") if dxy else "n/a",
-        "dxy_chg_1d":     fmt(dxy["pts_1d"], 2, suffix="pts") if dxy else "n/a",
-        "dxy_chg_4w":     fmt(dxy["pts_4w"], 2, suffix="pts") if dxy and dxy["pts_4w"] is not None else "n/a",
-        "dxy_weeks_to_inv": fmt(
-            (115 - dxy["price"]) / (dxy["pts_4w"] / 4), 0, suffix=" weeks to invalidation (rising = unfavorable)"
-        ) if dxy and dxy.get("pts_4w") and dxy["pts_4w"] > 0 else (
-            "moving away from invalidation (falling = favorable)" if dxy and dxy.get("pts_4w") and dxy["pts_4w"] < 0 else "n/a"
-        ),
-        "gold_px":        fmt(gold["price"], 2, prefix="$") if gold else "n/a",
-        "gold_1m":        _f(gold,   "chg_1m", suffix="%"),
-        "gold_3m":        _f(gold,   "chg_3m", suffix="%"),
-        "gold_dd":        _f(gold,   "dd_52w",  suffix="%"),
-        "silver_px":      fmt(silver["price"], 2, prefix="$") if silver else "n/a",
-        "silver_1m":      _f(silver, "chg_1m", suffix="%"),
-        "silver_3m":      _f(silver, "chg_3m", suffix="%"),
-        "silver_dd":      _f(silver, "dd_52w",  suffix="%"),
-        "gs":             fmt(gs_ratio, 1) if gs_ratio else "n/a",
-        "gs_dist_deploy": fmt(gs_ratio - 55, 1) if gs_ratio else "n/a",
-        "gs_dist_inv":    fmt(90 - gs_ratio, 1) if gs_ratio else "n/a",
-        "gs_chg_1d":      fmt(gs_chg_1d, 1) if gs_chg_1d is not None else "n/a",
-        "gs_chg_4w":      fmt(gs_chg_4w, 1) if gs_chg_4w is not None else "n/a",
-        "gs_velocity_label": (
-            fmt((gs_ratio - 55) / (-gs_chg_4w / 4), 0, suffix=" weeks to deploy trigger") if gs_chg_4w and gs_chg_4w < 0 and gs_ratio and gs_ratio > 55
-            else fmt((90 - gs_ratio) / (gs_chg_4w / 4), 0, suffix=" weeks to invalidation") if gs_chg_4w and gs_chg_4w > 0 and gs_ratio and gs_ratio < 90
-            else "n/a"
-        ) if gs_ratio and gs_chg_4w else "n/a",
-        "cb_gold_ttm":  f"{cb_ttm:+.0f}t" if cb_ttm is not None else "n/a",
-        "cb_gold_prev": f"{cb_prev:.0f}t"  if cb_prev is not None else "n/a",
-        "cb_gold_yoy":  f"{cb_ttm - cb_prev:+.0f}t" if cb_ttm is not None and cb_prev is not None else "n/a",
-        "cb_gold_date": cb_date or "n/a",
-        "cb_gold_lag":  f"{cb_lag}d" if cb_lag is not None else "n/a",
-        "lly_px":         fmt(lly_px["price"], 2, prefix="$") if lly_px else "n/a",
-        "lly_dd":         _f(lly_px, "dd_52w", suffix="%"),
-        "lly_rev":        fmt_bn(lly_c["val"]) if lly_c else "n/a",
-        "lly_rev_yoy":    fmt(pct(lly_c["val"], lly_p["val"] if lly_p else None), 1, suffix="%") if lly_c else "n/a",
-        "lly_rev_date":   lly_c["end"] if lly_c else "n/a",
-        "wmt_px":         fmt(wmt_px["price"], 2, prefix="$") if wmt_px else "n/a",
-        "wmt_dd":         _f(wmt_px, "dd_52w", suffix="%"),
-        "wmt_rev":        fmt_bn(wmt_c["val"]) if wmt_c else "n/a",
-        "wmt_rev_yoy":    fmt(pct(wmt_c["val"], wmt_p["val"] if wmt_p else None), 1, suffix="%") if wmt_c else "n/a",
-        "wmt_rev_date":   wmt_c["end"] if wmt_c else "n/a",
-        "jnj_px":         fmt(jnj_px["price"], 2, prefix="$") if jnj_px else "n/a",
-        "jnj_dd":         _f(jnj_px, "dd_52w", suffix="%"),
-        "jnj_rev":        fmt_bn(jnj_c["val"]) if jnj_c else "n/a",
-        "jnj_rev_yoy":    fmt(pct(jnj_c["val"], jnj_p["val"] if jnj_p else None), 1, suffix="%") if jnj_c else "n/a",
-        "jnj_div":        fmt(jnj_div_c["val"], 2, prefix="$") if jnj_div_c else "n/a",
-        "jnj_div_yoy":    fmt(pct(jnj_div_c["val"], jnj_div_p["val"] if jnj_div_p else None), 1, suffix="%") if jnj_div_c else "n/a",
-        "ccj_px":         fmt(ccj_px["price"], 2, prefix="$") if ccj_px else "n/a",
-        "ccj_dd":         _f(ccj_px, "dd_52w", suffix="%"),
-        "uranium_lag":    (date.today() - date.fromisoformat(uranium_date)).days if uranium_date else None,
-        "uranium":        fmt(uranium, 2, prefix="$", suffix="/lb") + (
-            f" (as of {uranium_date}, {(date.today() - date.fromisoformat(uranium_date)).days}d ago — monthly series)"
-            if uranium_date else ""
-        ) if uranium else "n/a",
-        "uranium_dist":   uranium - 50 if uranium else 0,
-        "oil_spot":       fmt(oil_spot, 1, prefix="$", suffix="/bbl") if oil_spot else "n/a",
-        "oil_fwd":        fmt(oil_fwd,  1, prefix="$", suffix="/bbl") if oil_fwd  else "n/a",
-        "oil_spread":     fmt(oil_spread, 1, suffix="/bbl") if oil_spread is not None else "n/a",
-        "oil_fwd_ticker": oil_fwd_ticker,
-        "oil_spot_date":  oil_spot_date or "n/a",
-        "oil_signal": (
-            "STRESS"    if oil_spread is not None and oil_spread > 20 else
-            "ELEVATED"  if oil_spread is not None and oil_spread > 10 else
-            "NORMAL"    if oil_spread is not None and oil_spread >= 0 else
-            "CONTANGO"  if oil_spread is not None else "n/a"
-        ),
-        "vrt_px":         fmt(vrt_px["price"], 2, prefix="$") if vrt_px else "n/a",
-        "vrt_dd":         _f(vrt_px, "dd_52w", suffix="%"),
-        "vrt_rev":        fmt_bn(vrt_c["val"]) if vrt_c else "n/a",
-        "vrt_rev_yoy":    fmt(pct(vrt_c["val"], vrt_p["val"] if vrt_p else None), 1, suffix="%") if vrt_c else "n/a",
-        "vrt_rev_date":   vrt_c["end"] if vrt_c else "n/a",
-        "avgo_px":        fmt(avgo_px["price"], 2, prefix="$") if avgo_px else "n/a",
-        "avgo_dd":        _f(avgo_px, "dd_52w", suffix="%"),
-        "avgo_rev":       fmt_bn(avgo_c["val"]) if avgo_c else "n/a",
-        "avgo_rev_yoy":   fmt(pct(avgo_c["val"], avgo_p["val"] if avgo_p else None), 1, suffix="%") if avgo_c else "n/a",
-        "avgo_rev_date":  avgo_c["end"] if avgo_c else "n/a",
-        "nvda_rev":       fmt_bn(nvda_c["val"]) if nvda_c else "n/a",
-        "nvda_rev_yoy":   fmt(pct(nvda_c["val"], nvda_p["val"] if nvda_p else None), 1, suffix="%") if nvda_c else "n/a",
-        "nvda_rev_date":  nvda_c["end"] if nvda_c else "n/a",
-        "capex":          fmt_bn(capex_total) if capex_total else "n/a",
-        "capex_yoy":      fmt(pct(capex_total, capex_total_prev), 1, suffix="%") if capex_total else "n/a",
-        "capex_date":     max(c["end"] for c in [msft_c, googl_c, amzn_c, meta_c] if c) if any([msft_c, googl_c, amzn_c, meta_c]) else "n/a",
-    }
+    # Velocity strings
+    ry_chg_1d = fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a"
+    ry_chg_4w = fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a"
+    dxy_chg_1d = fmt(dxy["pts_1d"], 2, suffix="pts") if dxy else "n/a"
+    dxy_chg_4w = fmt(dxy["pts_4w"], 2, suffix="pts") if dxy and dxy["pts_4w"] is not None else "n/a"
+    dxy_pts_1d = dxy["pts_1d"] if dxy else None
+    dxy_pts_4w = dxy["pts_4w"] if dxy else None
 
-    print("Calling Claude...")
-    interpretation = get_interpretation(facts)
+    ry_dist  = int(round(300 - ry_val * 100)) if ry_val is not None else "n/a"
+    dxy_dist = round(115 - dxy["price"], 2) if dxy else None
+    dxy_price = dxy["price"] if dxy else None
+    dxy_chg_1d_pct = dxy["chg_1d"] if dxy else None
+
+    uranium_mom = fmt(pct(uranium, uranium_prev), 1) if uranium and uranium_prev else "n/a"
+    capex_yoy = fmt(pct(capex_total, capex_total_prev), 1) if capex_total and capex_total_prev else "n/a"
 
     # Build output
     lines = []
@@ -801,110 +906,114 @@ def main():
     lines.append(f"  THESIS PULSE  |  {today}")
     lines.append("=" * 68)
     lines.append("")
-    lines.append(interpretation)
-    lines.append("")
-    lines.append("=" * 68)
-    lines.append("  RAW DATA")
-    lines.append("=" * 68)
-    lines.append("")
+
+    # MACRO
     lines.append("  MACRO")
     lines.append(f"  {'-'*64}")
-    ry_signal = facts["ry_signal"]
-    ry_dist   = facts["ry_dist"]
-    lines.append(f"  10Y Real Yield    {fmt(ry_val, 2, suffix='%'):<12}  (as of {ry_date})  {ry_dist}bps to 3.0%  [{ry_signal}]")
-    lines.append(f"  velocity          {facts['ry_chg_1d']} today  |  {facts['ry_chg_4w']} over 4wk  |  {facts['ry_weeks_to_inv']}")
-    dxy_signal = facts["dxy_signal"]
-    dxy_dist   = facts["dxy_dist"]
-    lines.append(f"  DXY               {fmt(dxy['price'], 2) if dxy else 'n/a':<12}  "
-                 f"1d {fmt(dxy['chg_1d'],1,suffix='%') if dxy else 'n/a'}  "
-                 f"{dxy_dist}pts to 115  [{dxy_signal}]")
-    lines.append(f"  velocity          {facts['dxy_chg_1d']} today  |  {facts['dxy_chg_4w']} over 4wk  |  {facts['dxy_weeks_to_inv']}")
+    if ry_val is not None:
+        lines.append(f"  10Y Real Yield    {ry_val:.2f}%         {ry_dist}bps to 3.0%{stale_flag(ry_date)}")
+        lines.append(f"  velocity          {ry_chg_1d} today  |  {ry_chg_4w} over 4wk")
+    else:
+        lines.append(f"  10Y Real Yield    n/a")
+        lines.append(f"  velocity          n/a")
+    if dxy_price is not None:
+        lines.append(f"  DXY               {dxy_price:.2f}         1d {dxy_chg_1d_pct:+.1f}%  {dxy_dist:.2f}pts to 115")
+        lines.append(f"  velocity          {dxy_pts_1d:+.2f}pts today  |  {dxy_pts_4w:+.2f}pts over 4wk" if dxy_pts_1d is not None and dxy_pts_4w is not None else "  velocity          n/a")
+    else:
+        lines.append(f"  DXY               n/a")
+        lines.append(f"  velocity          n/a")
+    if oil_spread is not None:
+        lines.append(f"  Oil term spread   ${oil_spread:.1f}/bbl  spot ${oil_spot:.1f}  12M fwd ${oil_fwd:.1f}{stale_flag(oil_spot_date)}")
+    else:
+        lines.append(f"  Oil term spread   n/a")
     lines.append("")
+
+    # HEDGES
     lines.append("  HEDGES")
     lines.append(f"  {'-'*64}")
     lines.append(f"  Gold              {fmt_px(gold)}")
     lines.append(f"  Silver            {fmt_px(silver)}")
-    lines.append(f"  G/S Ratio         {fmt(gs_ratio, 1):<12}  (deploy trigger <55)")
-    lines.append(f"  velocity          {facts['gs_chg_1d']} today  |  {facts['gs_chg_4w']} over 4wk  |  {facts['gs_velocity_label']}")
-    if cb_ttm is not None:
-        lines.append(f"  CB Gold demand    {cb_ttm:+.0f}t TTM net  "
-                     f"(vs {cb_prev:.0f}t prior yr  |  {cb_ttm - cb_prev:+.0f}t YoY)  "
-                     f"as of {cb_date}  ({cb_lag}d lag, WGC/IFS monthly)")
+    if gs_ratio is not None:
+        dist_t1 = 83.36 - gs_ratio
+        dist_t2 = 86.45 - gs_ratio
+        lines.append(f"  GSR               {gs_ratio:.1f}    {dist_t1:+.1f}pts to 83.36 (T1)  {dist_t2:+.1f}pts to 86.45 (T2)")
     else:
-        lines.append("  CB Gold demand    n/a  (set WGC_AUTH_* secrets — monthly series)")
+        lines.append(f"  GSR               n/a")
     lines.append("")
+
+    # CARRY
     lines.append("  CARRY")
     lines.append(f"  {'-'*64}")
-    lines.append(f"  LLY price         {fmt_px(lly_px)}")
+    lines.append(f"  LLY               {fmt_px(lly_px)}")
     if lly_c:
-        lines.append(f"  LLY revenue       {fmt_bn(lly_c['val'])}  "
-                     f"{fmt(pct(lly_c['val'], lly_p['val'] if lly_p else None), 1, suffix='%')} YoY  "
-                     f"({lly_c['end']} {lly_c['fp']})")
-    lines.append(f"  WMT price         {fmt_px(wmt_px)}")
+        lly_yoy = fmt(pct(lly_c["val"], lly_p["val"] if lly_p else None), 1)
+        lines.append(f"  LLY revenue       {fmt_bn(lly_c['val'])}  {lly_yoy}% YoY  ({lly_c['end']}){stale_flag(lly_c['end'])}")
+    lines.append(f"  WMT               {fmt_px(wmt_px)}")
     if wmt_c:
-        lines.append(f"  WMT revenue       {fmt_bn(wmt_c['val'])}  "
-                     f"{fmt(pct(wmt_c['val'], wmt_p['val'] if wmt_p else None), 1, suffix='%')} YoY  "
-                     f"({wmt_c['end']} {wmt_c['fp']})")
-    lines.append(f"  JNJ price         {fmt_px(jnj_px)}")
+        wmt_yoy = fmt(pct(wmt_c["val"], wmt_p["val"] if wmt_p else None), 1)
+        lines.append(f"  WMT revenue       {fmt_bn(wmt_c['val'])}  {wmt_yoy}% YoY  ({wmt_c['end']}){stale_flag(wmt_c['end'])}")
+    lines.append(f"  JNJ               {fmt_px(jnj_px)}")
     if jnj_c:
-        lines.append(f"  JNJ revenue       {fmt_bn(jnj_c['val'])}  "
-                     f"{fmt(pct(jnj_c['val'], jnj_p['val'] if jnj_p else None), 1, suffix='%')} YoY  "
-                     f"({jnj_c['end']} {jnj_c['fp']})")
+        jnj_yoy = fmt(pct(jnj_c["val"], jnj_p["val"] if jnj_p else None), 1)
+        lines.append(f"  JNJ revenue       {fmt_bn(jnj_c['val'])}  {jnj_yoy}% YoY  ({jnj_c['end']}){stale_flag(jnj_c['end'])}")
     if jnj_div_c:
-        lines.append(f"  JNJ div/share     ${jnj_div_c['val']:.2f}  "
-                     f"{fmt(pct(jnj_div_c['val'], jnj_div_p['val'] if jnj_div_p else None), 1, suffix='%')} YoY  "
-                     f"({jnj_div_c['end']} {jnj_div_c['fp']})")
+        jnj_div_yoy = fmt(pct(jnj_div_c["val"], jnj_div_p["val"] if jnj_div_p else None), 1)
+        lines.append(f"  JNJ div/share     ${jnj_div_c['val']:.2f}  {jnj_div_yoy}% YoY  ({jnj_div_c['end']}){stale_flag(jnj_div_c['end'])}")
     lines.append("")
+
+    # CYCLICAL
     lines.append("  CYCLICAL")
     lines.append(f"  {'-'*64}")
-    lines.append(f"  CCJ price         {fmt_px(ccj_px)}")
-    uranium_mom = fmt(pct(uranium, uranium_prev), 1, suffix="%") if uranium and uranium_prev else "n/a"
-    lines.append(f"  Uranium (IMF/FRED) {fmt(uranium, 2, prefix='$', suffix='/lb') if uranium else 'n/a'}"
-                 f"  1m {uranium_mom}"
-                 + (f"  (as of {uranium_date}, monthly)" if uranium_date else ""))
-    if oil_spread is not None:
-        lines.append(f"  Oil term spread   ${oil_spread:.1f}/bbl backwardation "
-                     f"(spot ${oil_spot:.1f} as of {oil_spot_date} | "
-                     f"12M fwd ${oil_fwd:.1f} via {oil_fwd_ticker})  [{facts['oil_signal']}]")
-        lines.append( "  (spread >$20 = STRESS | $10-20 = ELEVATED | <$10 = normal | <$0 = contango)")
-    else:
-        lines.append("  Oil term spread   n/a")
+    lines.append(f"  CCJ               {fmt_px(ccj_px)}")
+    lines.append(f"  Uranium           ${uranium:.2f}/lb  1m {uranium_mom}%{stale_flag(uranium_date)}" if uranium is not None else "  Uranium           n/a")
     lines.append("")
+
+    # CONVEXITY
     lines.append("  CONVEXITY")
     lines.append(f"  {'-'*64}")
-    lines.append(f"  VRT price         {fmt_px(vrt_px)}")
+    lines.append(f"  VRT               {fmt_px(vrt_px)}")
     if vrt_c:
-        lines.append(f"  VRT revenue       {fmt_bn(vrt_c['val'])}  "
-                     f"{fmt(pct(vrt_c['val'], vrt_p['val'] if vrt_p else None), 1, suffix='%')} YoY  "
-                     f"({vrt_c['end']} {vrt_c['fp']})")
-    lines.append(f"  AVGO price        {fmt_px(avgo_px)}")
+        vrt_yoy = fmt(pct(vrt_c["val"], vrt_p["val"] if vrt_p else None), 1)
+        lines.append(f"  VRT revenue       {fmt_bn(vrt_c['val'])}  {vrt_yoy}% YoY  ({vrt_c['end']}){stale_flag(vrt_c['end'])}")
+    lines.append(f"  AVGO              {fmt_px(avgo_px)}")
     if avgo_c:
-        lines.append(f"  AVGO revenue      {fmt_bn(avgo_c['val'])}  "
-                     f"{fmt(pct(avgo_c['val'], avgo_p['val'] if avgo_p else None), 1, suffix='%')} YoY  "
-                     f"({avgo_c['end']} {avgo_c['fp']})")
+        avgo_yoy = fmt(pct(avgo_c["val"], avgo_p["val"] if avgo_p else None), 1)
+        lines.append(f"  AVGO revenue      {fmt_bn(avgo_c['val'])}  {avgo_yoy}% YoY  ({avgo_c['end']}){stale_flag(avgo_c['end'])}")
     if nvda_c:
-        lines.append(f"  NVDA revenue      {fmt_bn(nvda_c['val'])}  "
-                     f"{fmt(pct(nvda_c['val'], nvda_p['val'] if nvda_p else None), 1, suffix='%')} YoY  "
-                     f"({nvda_c['end']} {nvda_c['fp']})")
+        nvda_yoy = fmt(pct(nvda_c["val"], nvda_p["val"] if nvda_p else None), 1)
+        lines.append(f"  NVDA revenue      {fmt_bn(nvda_c['val'])}  {nvda_yoy}% YoY  ({nvda_c['end']}){stale_flag(nvda_c['end'])}")
     if capex_total:
-        lines.append(f"  Hyperscaler capex {fmt_bn(capex_total)}  "
-                     f"{fmt(pct(capex_total, capex_total_prev), 1, suffix='%')} YoY")
-        for ticker, c, p in [("MSFT",msft_c,msft_p),("GOOGL",googl_c,googl_p),
-                              ("AMZN",amzn_c,amzn_p),("META",meta_c,meta_p)]:
+        lines.append(f"  Hyperscaler capex {fmt_bn(capex_total)}  {capex_yoy}% YoY")
+        for ticker, c, p in [("MSFT", msft_c, msft_p), ("GOOGL", googl_c, googl_p),
+                              ("AMZN", amzn_c, amzn_p), ("META",  meta_c,  meta_p)]:
             if c:
-                lines.append(f"    {ticker:<6} {fmt_bn(c['val'])}  "
-                             f"{fmt(pct(c['val'], p['val'] if p else None), 1, suffix='%')} YoY  "
-                             f"({c['end']})")
+                c_yoy = fmt(pct(c["val"], p["val"] if p else None), 1)
+                lines.append(f"    {ticker:<6}           {fmt_bn(c['val'])}  {c_yoy}% YoY  ({c['end']}){stale_flag(c['end'])}")
+    lines.append("")
+
+    # RECESSION TRACKER
+    lines.append("  RECESSION TRACKER")
+    lines.append(f"  {'-'*64}")
+    if rec:
+        lines.append(f"  Composite         {rec['composite']}/13")
+        lines.append(f"  p(recession 6m)   {rec['p6m']}%")
+        lines.append(f"  p(recession 12m)  {rec['p12m']}%")
+        lines.append("")
+        order = ["T10Y3M", "T10Y2Y", "DFII10", "ICSA", "UMCSENT",
+                 "INDPRO", "MANEMP", "PCEPILFE", "DFF", "VIXCLS",
+                 "SP500", "BAA_AAA_spread", "CAPE"]
+        for ind in order:
+            r = rec["indicators"].get(ind, {})
+            lines.append(f"  {ind:<18}  {r.get('val','n/a'):<12}  {r.get('thr','n/a'):<12}  {r.get('sig',0)}")
+    else:
+        lines.append("  n/a  (recession_config.json not found)")
     lines.append("")
     lines.append("=" * 68)
 
     body = "\n".join(lines)
     print(body)
 
-    # Extract OVERALL line for subject
-    overall = next((l for l in lines if l.startswith("OVERALL:")), "INTACT")
-    status  = overall.split("—")[0].replace("OVERALL:", "").strip()
-    subject = f"Thesis Pulse {today} [{status}]"
+    subject = f"Thesis Pulse {today}"
     send_email(subject, body)
 
 
