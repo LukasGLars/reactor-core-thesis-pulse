@@ -831,16 +831,7 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None):
         "sig":      1 if spread is not None and spread > thr else 0,
         "prev_sig": 1 if prev_spread is not None and prev_spread > thr else 0,
     }
-    # CAPE — only include if data available
-    cape = get_cape()
-    if cape is not None:
-        thr = ind_cfg["CAPE"]["threshold_val"]
-        results["CAPE"] = {
-            "val":      f"{cape:.1f}",
-            "thr":      f"{thr:.0f}.0",
-            "sig":      1 if cape > thr else 0,
-            "prev_sig": 1 if cape > thr else 0,
-        }
+    # CAPE — excluded: composite_score 0.07 (lowest), hit_rate 4/9, fp_rate 85%; scraper fragile
 
     composite      = sum(r["sig"]      for r in results.values())
     prev_composite = sum(r["prev_sig"] for r in results.values())
