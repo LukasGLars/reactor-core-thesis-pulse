@@ -481,8 +481,9 @@ def get_oil_term_spread():
     WTI spot (FRED DCOILWTICO) vs 12-month forward (Yahoo dynamic contract).
     Positive spread = backwardation = physical supply stress.
     Thesis signal: spread >$20 STRESS | $10-20 ELEVATED | $0-10 NORMAL | <$0 CONTANGO.
+    Returns spread_chg_4w: 4-week change in the spread (spot_4w - fwd_4w).
     """
-    spot, _, spot_date = fred_latest("DCOILWTICO")
+    spot, _, spot_4w, spot_date = fred_recent("DCOILWTICO", lookback=20)
 
     MONTH_CODES = "FGHJKMNQUVXZ"
     today = date.today()
@@ -492,18 +493,22 @@ def get_oil_term_spread():
     fwd_ticker = f"CL{code}{str(target_year)[2:]}.NYM"
 
     fwd = None
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{fwd_ticker}?interval=1d&range=5d"
+    fwd_4w = None
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{fwd_ticker}?interval=1d&range=2mo"
     try:
         r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if r.status_code == 200:
             closes = r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"]
             closes = [c for c in closes if c is not None]
-            fwd = closes[-1] if closes else None
+            fwd    = closes[-1]  if closes           else None
+            fwd_4w = closes[-20] if len(closes) >= 20 else None
     except Exception:
         pass
 
-    spread = round(spot - fwd, 2) if spot and fwd else None
-    return spot, fwd, spread, spot_date, fwd_ticker
+    spread        = round(spot    - fwd,    2) if spot    and fwd    else None
+    spread_4w     = round(spot_4w - fwd_4w, 2) if spot_4w and fwd_4w else None
+    spread_chg_4w = round(spread  - spread_4w, 1) if spread is not None and spread_4w is not None else None
+    return spot, fwd, spread, spread_chg_4w, spot_date, fwd_ticker
 
 # ── HELPERS ────────────────────────────────────────────────
 def pct(a, b):
@@ -840,14 +845,17 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None):
     composite      = sum(r["sig"]      for r in results.values())
     prev_composite = sum(r["prev_sig"] for r in results.values())
     denominator    = len(results)
+    n_calibrated   = len(ind_cfg)
     prob = probs.get(str(min(composite, 10)), {})
     return {
-        "indicators":      results,
-        "composite":       composite,
-        "prev_composite":  prev_composite,
-        "denominator":     denominator,
-        "p6m":             prob.get("p6m",  0),
-        "p12m":            prob.get("p12m", 0),
+        "indicators":           results,
+        "composite":            composite,
+        "prev_composite":       prev_composite,
+        "denominator":          denominator,
+        "n_calibrated":         n_calibrated,
+        "calibration_mismatch": denominator != n_calibrated,
+        "p6m":                  prob.get("p6m",  0),
+        "p12m":                 prob.get("p12m", 0),
     }
 
 
@@ -887,7 +895,7 @@ def main():
     uranium, uranium_prev, uranium_date = get_uranium()
 
     print("Fetching oil term spread...")
-    oil_spot, oil_fwd, oil_spread, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
+    oil_spot, oil_fwd, oil_spread, oil_spread_chg_4w, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
 
     print("Fetching recession indicators...")
     rec = compute_recession_signals(ry_val, ry_date, ry_prev=ry_prev)
@@ -930,13 +938,13 @@ def main():
     ry_4wk_str  = (f"  {(ry_val - ry_4w)*100:+.1f}bps 4wk" if ry_val and ry_4w else "")
     dxy_4wk_str = (f"  {dxy_pts_4w:+.2f}pts 4wk"           if dxy_pts_4w is not None else "")
     gsr_4wk_str = (f"  {gs_chg_4w:+.1f} 4wk"               if gs_chg_4w is not None else "")
-    rec_str     = (f"  prev {rec['prev_composite']}/{rec['denominator']}"
-                   if rec else "")
+    oil_4wk_str = (f"  {oil_spread_chg_4w:+.1f} 4wk"       if oil_spread_chg_4w is not None else "")
+    rec_str     = ""
     lines.append("  CORE THESIS DRIVERS")
     lines.append(f"  {'-'*64}")
     lines.append(f"  10Y Real Yield    {fmt(ry_val, 2, suffix='%') if ry_val else 'n/a'}{ry_4wk_str}{stale_flag(ry_date)}")
     lines.append(f"  DXY               {fmt(dxy_price, 2) if dxy_price else 'n/a'}{dxy_4wk_str}")
-    lines.append(f"  Oil term spread   {'$'+fmt(oil_spread,1)+'/bbl' if oil_spread is not None else 'n/a'}{stale_flag(oil_spot_date)}")
+    lines.append(f"  Oil term spread   {'$'+fmt(oil_spread,1)+'/bbl' if oil_spread is not None else 'n/a'}{oil_4wk_str}{stale_flag(oil_spot_date)}")
     lines.append(f"  GSR               {fmt(gs_ratio, 1) if gs_ratio else 'n/a'}{gsr_4wk_str}")
     lines.append(f"  Recession         {rec['composite']}/{rec['denominator']}{rec_str}" if rec else "  Recession         n/a")
     lines.append("")
@@ -947,11 +955,11 @@ def main():
     lines.append(f"  Gold              {fmt_px(gold)}")
     lines.append(f"  Silver            {fmt_px(silver)}")
     if gs_ratio is not None:
-        dist_t1 = 83.36 - gs_ratio
-        dist_t2 = 86.45 - gs_ratio
-        lines.append(f"  GSR               {gs_ratio:.1f}    {dist_t1:+.1f}pts to 83.36 (T1)  {dist_t2:+.1f}pts to 86.45 (T2)")
+        dist_p85 = 83.36 - gs_ratio
+        dist_p90 = 86.45 - gs_ratio
+        lines.append(f"  GSR               {gs_ratio:.1f}{gsr_4wk_str}  {dist_p85:+.1f} to p85(83.4)  {dist_p90:+.1f} to p90(86.5)")
     else:
-        lines.append(f"  GSR               n/a")
+        lines.append("  GSR               n/a")
     lines.append("")
 
     # CARRY
@@ -1009,7 +1017,7 @@ def main():
     lines.append(f"  {'-'*64}")
     if rec:
         denom = rec['denominator']
-        lines.append(f"  Composite         {rec['composite']}/{denom}    prev {rec['prev_composite']}/{denom}")
+        lines.append(f"  Composite         {rec['composite']}/{denom}")
         lines.append(f"  p(recession 6m)   {rec['p6m']}%")
         lines.append(f"  p(recession 12m)  {rec['p12m']}%")
         lines.append("")
