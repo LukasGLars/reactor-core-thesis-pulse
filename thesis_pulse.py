@@ -693,7 +693,7 @@ def get_cape():
 
 
 # ── RECESSION TRACKER ──────────────────────────────────────
-def compute_recession_signals(ry_val, ry_date, ry_prev=None):
+def compute_recession_signals(ry_val, ry_date, ry_prev=None, ry_4w=None):
     import json as _json
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "calibration", "recession_config.json")
@@ -703,43 +703,62 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None):
     except Exception:
         return None
     ind_cfg = cfg["indicators"]
-    probs   = cfg["composite_probabilities"]
     results = {}
 
+    def _bps(curr, prev):
+        if curr is None or prev is None: return "n/a"
+        return f"{(curr - prev) * 100:+.0f}bps"
+
     # T10Y3M
-    val, prev_val, dt = fred_latest("T10Y3M")
+    val, prev_val, lb_val, dt = fred_recent("T10Y3M", lookback=20)
     results["T10Y3M"] = {
-        "val":      f"{val:.2f}" if val is not None else "n/a",
-        "thr":      "0.0",
-        "sig":      1 if val is not None and val < 0 else 0,
-        "prev_sig": 1 if prev_val is not None and prev_val < 0 else 0,
+        "val":        f"{val:.2f}" if val is not None else "n/a",
+        "thr":        "0.0",
+        "sig":        1 if val is not None and val < 0 else 0,
+        "prev_sig":   1 if prev_val is not None and prev_val < 0 else 0,
+        "level_str":  f"{val:.2f}" if val is not None else "n/a",
+        "chg_4w_str": _bps(val, lb_val),
+        "dist_str":   f"{val - 0.0:+.2f}" if val is not None else "n/a",
     }
+
     # T10Y2Y
-    val, prev_val, dt = fred_latest("T10Y2Y")
+    val, prev_val, lb_val, dt = fred_recent("T10Y2Y", lookback=20)
     results["T10Y2Y"] = {
-        "val":      f"{val:.2f}" if val is not None else "n/a",
-        "thr":      "0.0",
-        "sig":      1 if val is not None and val < 0 else 0,
-        "prev_sig": 1 if prev_val is not None and prev_val < 0 else 0,
+        "val":        f"{val:.2f}" if val is not None else "n/a",
+        "thr":        "0.0",
+        "sig":        1 if val is not None and val < 0 else 0,
+        "prev_sig":   1 if prev_val is not None and prev_val < 0 else 0,
+        "level_str":  f"{val:.2f}" if val is not None else "n/a",
+        "chg_4w_str": _bps(val, lb_val),
+        "dist_str":   f"{val - 0.0:+.2f}" if val is not None else "n/a",
     }
-    # DFII10 — reuse fetched ry_val
+
+    # DFII10
     results["DFII10"] = {
-        "val":      f"{ry_val:.2f}" if ry_val is not None else "n/a",
-        "thr":      "1.0",
-        "sig":      1 if ry_val is not None and ry_val > 1.0 else 0,
-        "prev_sig": 1 if ry_prev is not None and ry_prev > 1.0 else 0,
+        "val":        f"{ry_val:.2f}" if ry_val is not None else "n/a",
+        "thr":        "1.0%",
+        "sig":        1 if ry_val is not None and ry_val > 1.0 else 0,
+        "prev_sig":   1 if ry_prev is not None and ry_prev > 1.0 else 0,
+        "level_str":  f"{ry_val:.2f}%" if ry_val is not None else "n/a",
+        "chg_4w_str": _bps(ry_val, ry_4w),
+        "dist_str":   f"{ry_val - 1.0:+.2f}" if ry_val is not None else "n/a",
     }
+
     # ICSA
-    val, prev_val, dt = fred_latest("ICSA")
+    val, prev_val, lb_val, dt = fred_recent("ICSA", lookback=4)
     thr = ind_cfg["ICSA"]["threshold_val"]
     results["ICSA"] = {
-        "val":      f"{val/1000:.1f}K" if val is not None else "n/a",
-        "thr":      f"{thr/1000:.0f}.0K",
-        "sig":      1 if val is not None and val > thr else 0,
-        "prev_sig": 1 if prev_val is not None and prev_val > thr else 0,
+        "val":        f"{val/1000:.1f}K" if val is not None else "n/a",
+        "thr":        f"{thr/1000:.0f}K",
+        "sig":        1 if val is not None and val > thr else 0,
+        "prev_sig":   1 if prev_val is not None and prev_val > thr else 0,
+        "level_str":  f"{val/1000:.0f}K" if val is not None else "n/a",
+        "chg_4w_str": f"{(val - lb_val)/1000:+.0f}K" if val is not None and lb_val is not None else "n/a",
+        "dist_str":   f"{(val - thr)/1000:+.0f}K" if val is not None else "n/a",
     }
-    # UMCSENT — excluded: threshold <90 fires >80% of historical months
-    # INDPRO — 3 consecutive monthly declines
+
+    # UMCSENT: FP rate >50% at all thresholds, permanent exclusion confirmed empirically
+    # INDPRO
     rows = fred_last_n("INDPRO", n=7)
     sig, prev_sig = 0, 0
     if len(rows) >= 4:
@@ -748,11 +767,19 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None):
     if len(rows) >= 5:
         prev_r = [v for _, v in rows[-5:-1]]
         prev_sig = 1 if all(prev_r[i] < prev_r[i-1] for i in range(1, len(prev_r))) else 0
+    curr_v = rows[-1][1] if rows else None
+    prev_v = rows[-2][1] if len(rows) >= 2 else None
     results["INDPRO"] = {
-        "val": f"{rows[-1][1]:.1f}" if rows else "n/a",
-        "thr": "3mo↓", "sig": sig, "prev_sig": prev_sig,
+        "val":        f"{curr_v:.1f}" if curr_v else "n/a",
+        "thr":        "3mo↓",
+        "sig":        sig,
+        "prev_sig":   prev_sig,
+        "level_str":  f"{curr_v:.1f}" if curr_v else "n/a",
+        "chg_4w_str": f"{curr_v - prev_v:+.1f}" if curr_v and prev_v else "n/a",
+        "dist_str":   "n/a",
     }
-    # MANEMP — 3 consecutive monthly declines
+
+    # MANEMP
     rows = fred_last_n("MANEMP", n=7)
     sig, prev_sig = 0, 0
     if len(rows) >= 4:
@@ -761,25 +788,43 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None):
     if len(rows) >= 5:
         prev_r = [v for _, v in rows[-5:-1]]
         prev_sig = 1 if all(prev_r[i] < prev_r[i-1] for i in range(1, len(prev_r))) else 0
+    curr_v = rows[-1][1] if rows else None
+    prev_v = rows[-2][1] if len(rows) >= 2 else None
     results["MANEMP"] = {
-        "val": f"{rows[-1][1]/1000:.2f}M" if rows else "n/a",
-        "thr": "3mo↓", "sig": sig, "prev_sig": prev_sig,
+        "val":        f"{curr_v/1000:.2f}M" if curr_v else "n/a",
+        "thr":        "3mo↓",
+        "sig":        sig,
+        "prev_sig":   prev_sig,
+        "level_str":  f"{curr_v/1000:.2f}M" if curr_v else "n/a",
+        "chg_4w_str": f"{(curr_v - prev_v)/1000:+.2f}M" if curr_v and prev_v else "n/a",
+        "dist_str":   "n/a",
     }
-    # PCEPILFE — YoY > 2.0%
+
+    # PCEPILFE
     rows = fred_last_n("PCEPILFE", n=15)
     sig, prev_sig = 0, 0
     yoy_str = "n/a"
+    curr_yoy = prev_yoy = None
     if len(rows) >= 13:
-        curr_v, prev_v = rows[-1][1], rows[-13][1]
-        yoy = (curr_v - prev_v) / prev_v * 100 if prev_v else 0
-        yoy_str = f"{yoy:.1f}%"
-        sig = 1 if yoy > ind_cfg["PCEPILFE"]["threshold_val"] else 0
+        curr_v, prev12 = rows[-1][1], rows[-13][1]
+        curr_yoy = (curr_v - prev12) / prev12 * 100 if prev12 else 0
+        yoy_str = f"{curr_yoy:.1f}%"
+        sig = 1 if curr_yoy > ind_cfg["PCEPILFE"]["threshold_val"] else 0
     if len(rows) >= 14:
         p_curr, p_prev = rows[-2][1], rows[-14][1]
-        p_yoy = (p_curr - p_prev) / p_prev * 100 if p_prev else 0
-        prev_sig = 1 if p_yoy > ind_cfg["PCEPILFE"]["threshold_val"] else 0
-    results["PCEPILFE"] = {"val": yoy_str, "thr": "2.0%", "sig": sig, "prev_sig": prev_sig}
-    # DFF — fed cutting 3 consecutive months (use FEDFUNDS monthly)
+        prev_yoy = (p_curr - p_prev) / p_prev * 100 if p_prev else 0
+        prev_sig = 1 if prev_yoy > ind_cfg["PCEPILFE"]["threshold_val"] else 0
+    results["PCEPILFE"] = {
+        "val":        yoy_str,
+        "thr":        "2.0%",
+        "sig":        sig,
+        "prev_sig":   prev_sig,
+        "level_str":  yoy_str,
+        "chg_4w_str": f"{curr_yoy - prev_yoy:+.1f}%" if curr_yoy is not None and prev_yoy is not None else "n/a",
+        "dist_str":   f"{curr_yoy - 2.0:+.1f}%" if curr_yoy is not None else "n/a",
+    }
+
+    # DFF
     val_dff, _, dt_dff = fred_latest("DFF")
     rows = fred_last_n("FEDFUNDS", n=7)
     sig, prev_sig = 0, 0
@@ -789,24 +834,42 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None):
     if len(rows) >= 5:
         prev_r = [v for _, v in rows[-5:-1]]
         prev_sig = 1 if all(prev_r[i] < prev_r[i-1] for i in range(1, len(prev_r))) else 0
+    ff_curr = rows[-1][1] if rows else None
+    ff_prev = rows[-2][1] if len(rows) >= 2 else None
+    if ff_curr is not None and ff_prev is not None:
+        dff_d = ff_curr - ff_prev
+        dff_chg = "flat" if abs(dff_d) < 0.01 else f"{dff_d:+.2f}%"
+    else:
+        dff_chg = "n/a"
     results["DFF"] = {
-        "val":      f"{val_dff:.2f}%" if val_dff is not None else "n/a",
-        "thr":      "cut 3mo", "sig": sig, "prev_sig": prev_sig,
+        "val":        f"{val_dff:.2f}%" if val_dff is not None else "n/a",
+        "thr":        "cut 3mo",
+        "sig":        sig,
+        "prev_sig":   prev_sig,
+        "level_str":  f"{val_dff:.2f}%" if val_dff is not None else "n/a",
+        "chg_4w_str": dff_chg,
+        "dist_str":   "n/a",
     }
+
     # VIXCLS
-    val, prev_val, dt = fred_latest("VIXCLS")
+    val, prev_val, lb_val, dt = fred_recent("VIXCLS", lookback=20)
     thr = ind_cfg["VIXCLS"]["threshold_val"]
     results["VIXCLS"] = {
-        "val":      f"{val:.1f}" if val is not None else "n/a",
-        "thr":      f"{thr:.0f}.0",
-        "sig":      1 if val is not None and val > thr else 0,
-        "prev_sig": 1 if prev_val is not None and prev_val > thr else 0,
+        "val":        f"{val:.1f}" if val is not None else "n/a",
+        "thr":        f"{thr:.0f}.0",
+        "sig":        1 if val is not None and val > thr else 0,
+        "prev_sig":   1 if prev_val is not None and prev_val > thr else 0,
+        "level_str":  f"{val:.1f}" if val is not None else "n/a",
+        "chg_4w_str": f"{val - lb_val:+.1f}" if val is not None and lb_val is not None else "n/a",
+        "dist_str":   f"{val - thr:+.1f}" if val is not None else "n/a",
     }
-    # SP500 — below 10-month MA
+
+    # SP500
     rows = fred_last_n("SP500", n=13)
     sig, prev_sig = 0, 0
     thr_str = "<10mo MA"
     val_str = "n/a"
+    sp_val = ma10 = prev_sp = None
     if rows:
         sp_val = rows[-1][1]
         val_str = f"{sp_val:.0f}"
@@ -818,37 +881,50 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None):
             prev_sp = rows[-2][1]
             prev_ma = sum(v for _, v in rows[-11:-1]) / 10
             prev_sig = 1 if prev_sp < prev_ma else 0
-    results["SP500"] = {"val": val_str, "thr": thr_str, "sig": sig, "prev_sig": prev_sig}
+    results["SP500"] = {
+        "val":        val_str,
+        "thr":        thr_str,
+        "sig":        sig,
+        "prev_sig":   prev_sig,
+        "level_str":  val_str,
+        "chg_4w_str": f"{sp_val - prev_sp:+.0f}" if sp_val and prev_sp else "n/a",
+        "dist_str":   f"{sp_val - ma10:+.0f}" if sp_val and ma10 else "n/a",
+    }
+
     # BAA_AAA spread
     baa, prev_baa, _ = fred_latest("BAA")
     aaa, prev_aaa, _ = fred_latest("AAA")
     spread      = round(baa - aaa, 2)             if baa is not None and aaa is not None else None
     prev_spread = round(prev_baa - prev_aaa, 2)   if prev_baa is not None and prev_aaa is not None else None
     thr = ind_cfg["CREDIT_SPREAD"]["threshold_val"]
+    baa_rows = fred_last_n("BAA", n=2)
+    aaa_rows = fred_last_n("AAA", n=2)
+    if len(baa_rows) >= 2 and len(aaa_rows) >= 2:
+        prev_cs = round(baa_rows[-2][1] - aaa_rows[-2][1], 2)
+        cs_chg  = f"{spread - prev_cs:+.2f}%" if spread is not None else "n/a"
+    else:
+        cs_chg = "n/a"
     results["BAA_AAA_spread"] = {
-        "val":      f"{spread:.2f}%" if spread is not None else "n/a",
-        "thr":      f"{thr}%",
-        "sig":      1 if spread is not None and spread > thr else 0,
-        "prev_sig": 1 if prev_spread is not None and prev_spread > thr else 0,
+        "val":        f"{spread:.2f}%" if spread is not None else "n/a",
+        "thr":        f"{thr}%",
+        "sig":        1 if spread is not None and spread > thr else 0,
+        "prev_sig":   1 if prev_spread is not None and prev_spread > thr else 0,
+        "level_str":  f"{spread:.2f}%" if spread is not None else "n/a",
+        "chg_4w_str": cs_chg,
+        "dist_str":   f"{spread - thr:+.2f}%" if spread is not None else "n/a",
     }
-    # CAPE — excluded: composite_score 0.07 (lowest), hit_rate 4/9, fp_rate 85%; scraper fragile
+
+    # CAPE: multpl.com fetch works but valuation elevated persistently since 1990s -- not a timing signal. Permanent exclusion confirmed empirically.
 
     composite      = sum(r["sig"]      for r in results.values())
     prev_composite = sum(r["prev_sig"] for r in results.values())
     denominator    = len(results)
-    n_calibrated   = len(ind_cfg)
-    prob = probs.get(str(min(composite, 10)), {})
     return {
-        "indicators":           results,
-        "composite":            composite,
-        "prev_composite":       prev_composite,
-        "denominator":          denominator,
-        "n_calibrated":         n_calibrated,
-        "calibration_mismatch": denominator != n_calibrated,
-        "p6m":                  prob.get("p6m",  0),
-        "p12m":                 prob.get("p12m", 0),
+        "indicators":     results,
+        "composite":      composite,
+        "prev_composite": prev_composite,
+        "denominator":    denominator,
     }
-
 
 # ── MAIN ───────────────────────────────────────────────────
 def main():
@@ -889,7 +965,7 @@ def main():
     oil_spot, oil_fwd, oil_spread, oil_spread_chg_4w, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
 
     print("Fetching recession indicators...")
-    rec = compute_recession_signals(ry_val, ry_date, ry_prev=ry_prev)
+    rec = compute_recession_signals(ry_val, ry_date, ry_prev=ry_prev, ry_4w=ry_4w)
 
     # Compute derived values
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
@@ -1007,19 +1083,24 @@ def main():
     lines.append("  RECESSION TRACKER")
     lines.append(f"  {'-'*64}")
     if rec:
-        denom = rec['denominator']
-        lines.append(f"  Composite         {rec['composite']}/{denom}")
-        lines.append(f"  p(recession 6m)   {rec['p6m']}%")
-        lines.append(f"  p(recession 12m)  {rec['p12m']}%")
+        prev_str = f"prev {rec['prev_composite']}/{rec['denominator']}"
+        lines.append(f"  Composite    {rec['composite']}/{rec['denominator']}    {prev_str}")
         lines.append("")
+        lines.append(f"  {'Signal':<18} {'Level':<11} {'Threshold':<13} {'4wk':<11} Distance")
+        lines.append(f"  {'-'*64}")
         order = ["T10Y3M", "T10Y2Y", "DFII10", "ICSA",
                  "INDPRO", "MANEMP", "PCEPILFE", "DFF", "VIXCLS",
-                 "SP500", "BAA_AAA_spread", "CAPE"]
+                 "SP500", "BAA_AAA_spread"]
         for ind in order:
             r = rec["indicators"].get(ind)
             if r is None:
                 continue
-            lines.append(f"  {ind:<18}  {r.get('val','n/a'):<12}  {r.get('thr','n/a'):<12}  {r.get('sig',0)}")
+            level_s  = r.get("level_str", r.get("val", "n/a"))
+            thr_s    = r.get("thr", "n/a")
+            chg_s    = r.get("chg_4w_str", "n/a")
+            dist_s   = r.get("dist_str", "n/a")
+            bullet   = "  ●" if r.get("sig", 0) else ""
+            lines.append(f"  {ind:<18} {level_s:<11} {thr_s:<13} {chg_s:<11} {dist_s}{bullet}")
     else:
         lines.append("  n/a  (recession_config.json not found)")
     lines.append("")
