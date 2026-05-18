@@ -4,7 +4,7 @@ Reactor Core Thesis Pulse v2.0
 Daily thesis monitoring for 8-position portfolio.
 Runs via GitHub Actions — sends email with raw data + recession tracker.
 """
-import requests, json, os, sys, smtplib, time
+import requests, json, os, sys, smtplib, time, csv
 from datetime import date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -31,6 +31,12 @@ WGC_AUTH_SESSION  = os.environ.get("WGC_AUTH_SESSION", "")
 WGC_XSRF          = os.environ.get("WGC_XSRF", "")
 
 _dir = os.path.dirname(os.path.abspath(__file__))
+
+# ── PORTFOLIO WEIGHTS (v3) ──────────────────────────────────
+V3_WEIGHTS = {
+    "gold": 0.25, "silver": 0.10, "lly": 0.15, "wmt": 0.15,
+    "vrt":  0.10, "ccj":   0.10, "avgo": 0.09, "jnj": 0.06,
+}
 with open(os.path.join(_dir, "thesis_v3.md"),       encoding="utf-8") as f: THESIS_DOC       = f.read()
 with open(os.path.join(_dir, "invalidation_v3.md"), encoding="utf-8") as f: INVALIDATION_DOC = f.read()
 
@@ -926,6 +932,149 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None, ry_4w=None):
         "denominator":    denominator,
     }
 
+# ── LOG HELPERS ────────────────────────────────────────────
+def _safe(val, decimals=4):
+    """Format value for CSV; empty string for None."""
+    if val is None:
+        return ""
+    if isinstance(val, int):
+        return str(val)
+    if isinstance(val, float):
+        return f"{val:.{decimals}f}"
+    return str(val)
+
+def _num(s):
+    """Parse numeric string with optional %, K (×1e3), M (×1e6) suffix."""
+    if not s or s == "n/a":
+        return None
+    s = str(s).strip().lstrip("+")
+    mult = 1.0
+    if s.endswith("K"):
+        mult, s = 1e3, s[:-1]
+    elif s.endswith("M"):
+        mult, s = 1e6, s[:-1]
+    try:
+        return float(s.replace("%", "")) * mult
+    except Exception:
+        return None
+
+def _append_csv(path, header, row):
+    """Append one row to a CSV file, writing the header if the file is new."""
+    write_header = not os.path.exists(path)
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if write_header:
+            w.writerow(header)
+        w.writerow(row)
+
+# Columns and units for macro_log.csv:
+#   t10y2y / t10y3m       — percentage points (e.g. 0.49)
+#   real_yield_10y        — percentage points (DFII10)
+#   core_pce_yoy_pct      — percent YoY (e.g. 3.2)
+#   icsa_claims           — raw initial claims count (e.g. 200000)
+#   fed_funds_pct         — percent (e.g. 3.64)
+#   credit_spread_pct     — percent (e.g. 0.61)
+#   manemp_k              — thousands of persons (FRED native unit, e.g. 12340)
+#   oil_spread            — USD/bbl backwardation (positive = backwardation)
+_MACRO_HEADER = [
+    "date", "dxy", "real_yield_10y", "t10y2y", "t10y3m",
+    "core_pce_yoy_pct", "icsa_claims", "fed_funds_pct", "vix",
+    "sp500", "credit_spread_pct", "indpro", "manemp_k",
+    "oil_spread", "gs_ratio", "recession_count",
+]
+
+# Columns for asset_log.csv:
+#   *_usd    — closing price in USD
+#   *_sek    — closing price in SEK (USD price × USDSEK rate)
+#   *_ret    — 1-day % return (chg_1d from Yahoo, e.g. 1.23 means +1.23%)
+#   portfolio_ret — weighted 1-day % return at v3 target weights
+_ASSET_HEADER = [
+    "date",
+    "gold_usd", "silver_usd", "lly_usd", "wmt_usd",
+    "vrt_usd",  "ccj_usd",   "avgo_usd", "jnj_usd",
+    "usdsek", "gold_sek", "silver_sek",
+    "gold_ret", "silver_ret", "lly_ret", "wmt_ret",
+    "vrt_ret",  "ccj_ret",   "avgo_ret", "jnj_ret",
+    "portfolio_ret",
+]
+
+def append_macro_log(today, dxy_price, ry_val, rec, gs_ratio, oil_spread):
+    ind = (rec or {}).get("indicators", {})
+
+    def _iv(key):
+        return _num((ind.get(key) or {}).get("level_str", ""))
+
+    # MANEMP level_str is "12.34M" where the unit is already millions of persons,
+    # but FRED's MANEMP is in thousands — so _num("12.34M")=12340000, /1000 → 12340k.
+    manemp_raw = _iv("MANEMP")
+    manemp_k   = manemp_raw / 1000 if manemp_raw is not None else None
+
+    row = [
+        today,
+        _safe(dxy_price, 4),
+        _safe(ry_val, 4),
+        _safe(_iv("T10Y2Y"), 4),
+        _safe(_iv("T10Y3M"), 4),
+        _safe(_iv("PCEPILFE"), 2),
+        _safe(_iv("ICSA"), 0),          # raw claims e.g. 200000
+        _safe(_iv("DFF"), 4),
+        _safe(_iv("VIXCLS"), 2),
+        _safe(_iv("SP500"), 0),
+        _safe(_iv("BAA_AAA_spread"), 4),
+        _safe(_iv("INDPRO"), 2),
+        _safe(manemp_k, 0),
+        _safe(oil_spread, 2),
+        _safe(gs_ratio, 4),
+        (rec or {}).get("composite", ""),
+    ]
+    _append_csv(os.path.join(_dir, "macro_log.csv"), _MACRO_HEADER, row)
+
+def append_asset_log(today, gold, silver, lly_px, wmt_px, vrt_px, ccj_px,
+                     avgo_px, jnj_px, usdsek_price):
+    def _p(d):
+        return d["price"] if d else None
+
+    def _r(d):
+        return d["chg_1d"] if d else None  # already in % terms (e.g. 1.23 = +1.23%)
+
+    gold_p  = _p(gold);    silver_p = _p(silver)
+    lly_p   = _p(lly_px);  wmt_p   = _p(wmt_px)
+    vrt_p   = _p(vrt_px);  ccj_p   = _p(ccj_px)
+    avgo_p  = _p(avgo_px); jnj_p   = _p(jnj_px)
+
+    gold_sek   = gold_p   * usdsek_price if gold_p   and usdsek_price else None
+    silver_sek = silver_p * usdsek_price if silver_p and usdsek_price else None
+
+    rets = {
+        "gold":   _r(gold),    "silver": _r(silver),
+        "lly":    _r(lly_px),  "wmt":    _r(wmt_px),
+        "vrt":    _r(vrt_px),  "ccj":    _r(ccj_px),
+        "avgo":   _r(avgo_px), "jnj":    _r(jnj_px),
+    }
+    # Weighted portfolio return; excludes any position with missing data
+    valid = {k: v for k, v in rets.items() if v is not None}
+    if valid:
+        total_w = sum(V3_WEIGHTS[k] for k in valid)
+        port_ret = sum(V3_WEIGHTS[k] * v for k, v in valid.items()) / total_w if total_w else None
+    else:
+        port_ret = None
+
+    row = [
+        today,
+        _safe(gold_p, 4),   _safe(silver_p, 4),
+        _safe(lly_p, 4),    _safe(wmt_p, 4),
+        _safe(vrt_p, 4),    _safe(ccj_p, 4),
+        _safe(avgo_p, 4),   _safe(jnj_p, 4),
+        _safe(usdsek_price, 4),
+        _safe(gold_sek, 2), _safe(silver_sek, 2),
+        _safe(rets["gold"],   4), _safe(rets["silver"], 4),
+        _safe(rets["lly"],    4), _safe(rets["wmt"],    4),
+        _safe(rets["vrt"],    4), _safe(rets["ccj"],    4),
+        _safe(rets["avgo"],   4), _safe(rets["jnj"],    4),
+        _safe(port_ret, 4),
+    ]
+    _append_csv(os.path.join(_dir, "asset_log.csv"), _ASSET_HEADER, row)
+
 # ── MAIN ───────────────────────────────────────────────────
 def main():
     today = date.today().isoformat()
@@ -940,7 +1089,8 @@ def main():
     jnj_px  = yahoo_history("JNJ");     time.sleep(1)
     ccj_px  = yahoo_history("CCJ");     time.sleep(1)
     vrt_px  = yahoo_history("VRT");     time.sleep(1)
-    avgo_px = yahoo_history("AVGO")
+    avgo_px = yahoo_history("AVGO");  time.sleep(1)
+    usdsek  = yahoo_history("USDSEK=X")
 
     print("Fetching FRED...")
     ry_val, ry_prev, ry_4w, ry_date = fred_recent("DFII10", lookback=20)
@@ -1108,6 +1258,12 @@ def main():
 
     body = "\n".join(lines)
     print(body)
+
+    print("Writing daily logs...")
+    usdsek_price = usdsek["price"] if usdsek else None
+    append_macro_log(today, dxy_price, ry_val, rec, gs_ratio, oil_spread)
+    append_asset_log(today, gold, silver, lly_px, wmt_px, vrt_px, ccj_px,
+                     avgo_px, jnj_px, usdsek_price)
 
     subject = f"Thesis Pulse {today}"
     send_email(subject, body)
