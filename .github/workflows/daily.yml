@@ -5,6 +5,9 @@ on:
     - cron: '0 7 * * 1-5'   # 07:00 UTC = 09:00 CET, weekdays
   workflow_dispatch:          # manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -22,6 +25,18 @@ jobs:
       - name: Install dependencies
         run: pip install requests openpyxl
 
+      - name: Backfill logs if not present
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API }}
+        run: |
+          lines=$(wc -l < macro_log.csv 2>/dev/null || echo 0)
+          if [ "$lines" -gt 1 ]; then
+            echo "Logs present (${lines} rows) — skipping backfill"
+          else
+            echo "Logs missing — running backfill..."
+            python backfill_logs.py
+          fi
+
       - name: Run Thesis Pulse
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -32,3 +47,11 @@ jobs:
           WGC_EMAIL:         ${{ secrets.WGC_EMAIL }}
           WGC_PASSWORD:      ${{ secrets.WGC_PASSWORD }}
         run: python thesis_pulse.py
+
+      - name: Commit daily logs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add macro_log.csv asset_log.csv
+          git diff --cached --quiet || git commit -m "[data] $(date -u +%Y-%m-%d) daily log"
+          git push
