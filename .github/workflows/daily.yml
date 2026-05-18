@@ -5,6 +5,9 @@ on:
     - cron: '0 7 * * 1-5'   # 07:00 UTC = 09:00 CET, weekdays
   workflow_dispatch:          # manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -32,3 +35,11 @@ jobs:
           WGC_EMAIL:         ${{ secrets.WGC_EMAIL }}
           WGC_PASSWORD:      ${{ secrets.WGC_PASSWORD }}
         run: python thesis_pulse.py
+
+      - name: Commit daily logs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add macro_log.csv asset_log.csv
+          git diff --cached --quiet || git commit -m "[data] $(date -u +%Y-%m-%d) daily log"
+          git push
