@@ -1,5 +1,5 @@
 {
-  "calibrated": "2026-05-11 12:07 UTC",
+  "calibrated": "2026-05-18 (11-indicator recalibration; UMCSENT + CAPE permanently excluded)",
   "recession_cycles_analyzed": 9,
   "regime_thresholds": {
     "background_noise": {
@@ -65,7 +65,9 @@
       "lead_months": "11 months",
       "hit_rate": "8/9",
       "fp_rate": "69%",
-      "composite_score": 0.2728
+      "composite_score": 0.2728,
+      "permanent_exclusion": true,
+      "exclusion_reason": "FP rate >50% at all thresholds. Sentiment responds to all negative events, cannot discriminate recession signal."
     },
     "INDPRO": {
       "signal": "direction",
@@ -135,7 +137,9 @@
       "lead_months": "9 months",
       "hit_rate": "4/9",
       "fp_rate": "85%",
-      "composite_score": 0.0662
+      "composite_score": 0.0662,
+      "permanent_exclusion": true,
+      "exclusion_reason": "CAPE >20 since mid-1990s. Valuation elevated persistently -- not a timing signal. FP 72-85% across all thresholds."
     },
     "CREDIT_SPREAD": {
       "signal": "level",
@@ -150,59 +154,55 @@
   },
   "composite_probabilities": {
     "0": {
-      "p6m": 0,
-      "p12m": 1,
-      "sample_months": 729
+      "p6m": 1,
+      "p12m": 4,
+      "sample_months": 166
     },
     "1": {
-      "p6m": 0,
-      "p12m": 2,
-      "sample_months": 355
+      "p6m": 1,
+      "p12m": 3,
+      "sample_months": 374
     },
     "2": {
       "p6m": 1,
-      "p12m": 6,
-      "sample_months": 156
+      "p12m": 5,
+      "sample_months": 192
     },
     "3": {
-      "p6m": 7,
-      "p12m": 12,
-      "sample_months": 164
+      "p6m": 8,
+      "p12m": 11,
+      "sample_months": 173
     },
     "4": {
-      "p6m": 5,
-      "p12m": 7,
-      "sample_months": 163
+      "p6m": 11,
+      "p12m": 20,
+      "sample_months": 189
     },
     "5": {
-      "p6m": 16,
-      "p12m": 29,
-      "sample_months": 121
+      "p6m": 13,
+      "p12m": 17,
+      "sample_months": 86
     },
     "6": {
-      "p6m": 14,
-      "p12m": 17,
-      "sample_months": 72
+      "p6m": 11,
+      "p12m": 15,
+      "sample_months": 54
     },
     "7": {
-      "p6m": 10,
-      "p12m": 15,
-      "sample_months": 59
+      "p6m": 9,
+      "p12m": 21,
+      "sample_months": 43
     },
     "8": {
-      "p6m": 3,
-      "p12m": 10,
-      "sample_months": 30
+      "p6m": 18,
+      "p12m": 18,
+      "sample_months": 11
     },
     "9": {
-      "p6m": 20,
-      "p12m": 30,
-      "sample_months": 10
-    },
-    "10": {
       "p6m": 0,
       "p12m": 0,
-      "sample_months": 2
+      "sample_months": 1
     }
-  }
+  },
+  "active_indicator_count": 11
 }
