@@ -959,8 +959,13 @@ def _num(s):
         return None
 
 def _append_csv(path, header, row):
-    """Append one row to a CSV file, writing the header if the file is new."""
+    """Append one row to a CSV file, writing the header if the file is new. Skips if date already present."""
     write_header = not os.path.exists(path)
+    if not write_header:
+        with open(path, newline="", encoding="utf-8") as f:
+            if any(r[0] == row[0] for r in csv.reader(f) if r):
+                print(f"  {os.path.basename(path)}: {row[0]} already logged — skipping")
+                return
     with open(path, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if write_header:
