@@ -1,19 +1,15 @@
 import requests, os
 key = os.environ.get("EIA_API","")
 url = "https://api.eia.gov/v2/petroleum/pri/fut/data/"
-params = {
-    "api_key": key,
-    "frequency": "daily",
-    "data[0]": "value",
-    "facets[series][]": "RCLC12",
-    "start": "2020-01-01",
-    "sort[0][column]": "period",
-    "sort[0][direction]": "asc",
-    "length": 5,
-}
-r = requests.get(url, params=params, timeout=15)
-d = r.json()
-resp = d.get("response",{})
-print("total:", resp.get("total"))
-for row in resp.get("data",[]):
-    print(row)
+# Check RCLC1 and RCLC4 - spot and 4-month forward
+for series in ["RCLC1","RCLC4"]:
+    params = {
+        "api_key": key, "frequency": "daily",
+        "data[0]": "value", "facets[series][]": series,
+        "sort[0][column]": "period", "sort[0][direction]": "asc",
+        "length": 3,
+    }
+    r = requests.get(url, params=params, timeout=15)
+    resp = r.json().get("response",{})
+    rows = resp.get("data",[])
+    print("{}: total={} earliest={}".format(series, resp.get("total"), rows[0].get("period") if rows else "none"))
