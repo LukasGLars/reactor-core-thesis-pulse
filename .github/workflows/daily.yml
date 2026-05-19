@@ -37,6 +37,11 @@ jobs:
             python backfill_logs.py
           fi
 
+      - name: Patch blank columns
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API }}
+        run: python -c "from backfill_logs import patch_macro_log; patch_macro_log()"
+
       - name: Run Thesis Pulse
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
