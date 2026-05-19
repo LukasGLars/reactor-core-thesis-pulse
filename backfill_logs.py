@@ -19,9 +19,11 @@ from datetime import date as _date, datetime, timedelta
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 _dir         = os.path.dirname(os.path.abspath(__file__))
 
-MACRO_START  = "2003-01-01"
-ASSET_START  = "2009-01-01"
-END_DATE     = _date.today().isoformat()   # exclusive — today handled by live script
+MACRO_START     = "2003-01-01"
+ASSET_START     = "2009-01-01"
+END_DATE        = _date.today().isoformat()   # exclusive — today handled by live script
+OIL_PATCH_START = "2020-01-01"
+_MONTH_CODES    = "FGHJKMNQUVXZ"
 
 V3_WEIGHTS = {
     "gold": 0.25, "silver": 0.10, "lly": 0.15, "wmt": 0.15,
@@ -54,7 +56,7 @@ def _safe(val, decimals=4):
     return f"{val:.{decimals}f}"
 
 def date_range(start, end):
-    """Mon–Fri date strings from start (inclusive) to end (exclusive)."""
+    """Mon-Fri date strings from start (inclusive) to end (exclusive)."""
     out, d = [], datetime.fromisoformat(start).date()
     e = datetime.fromisoformat(end).date()
     while d < e:
@@ -90,7 +92,7 @@ def write_csv(path, header, rows):
         if write_header:
             w.writerow(header)
         w.writerows(rows)
-    print(f"  wrote {len(rows)} rows → {os.path.basename(path)}")
+    print(f"  wrote {len(rows)} rows -> {os.path.basename(path)}")
 
 # ── DATA FETCHERS ────────────────────────────────────────────
 def yahoo_full(symbol, start_date):
@@ -116,7 +118,7 @@ def yahoo_full(symbol, start_date):
             return out
         except Exception as e:
             wait = 2 ** attempt
-            print(f"  {symbol} attempt {attempt+1}: {e} — retry in {wait}s")
+            print(f"  {symbol} attempt {attempt+1}: {e} -- retry in {wait}s")
             time.sleep(wait)
     return {}
 
@@ -129,7 +131,7 @@ def fred_full(series_id):
            f"&file_type=json&sort_order=asc")
     for attempt in range(4):
         try:
-            r = requests.get(url, headers={"User-Agent": "thesis-pulse/1.0"}, timeout=30)
+            r = requests.get(url, headers={"User-Agent": "thesis-pulse/1.0"}, timeout=60)
             r.raise_for_status()
             obs = r.json().get("observations", [])
             out = {o["date"]: float(o["value"])
@@ -139,7 +141,7 @@ def fred_full(series_id):
             return out
         except Exception as e:
             wait = 2 ** attempt
-            print(f"  FRED {series_id} attempt {attempt+1}: {e} — retry in {wait}s")
+            print(f"  FRED {series_id} attempt {attempt+1}: {e} -- retry in {wait}s")
             time.sleep(wait)
     return {}
 
@@ -197,7 +199,7 @@ def build_recession_count(daily_dates, daily_series, monthly_signals):
     """
     Compute recession composite count for each date in daily_dates.
     Replicates compute_recession_signals() from thesis_pulse.py (11 indicators;
-    UMCSENT and CAPE permanently excluded — empirically confirmed high FP rate).
+    UMCSENT and CAPE permanently excluded -- empirically confirmed high FP rate).
     Returns {date_str: int}.
     """
     # Forward-fill daily FRED series to the date index
@@ -238,6 +240,90 @@ def build_recession_count(daily_dates, daily_series, monthly_signals):
         if b is not None and a is not None and (b - a) > 0.75: count += 1  # credit spread
         out[d] = count
     return out
+
+# ── COLUMN PATCHER ───────────────────────────────────────────
+def patch_macro_log():
+    """Fill blank icsa_claims (all history) and oil_spread (2020+) in macro_log."""
+    path = os.path.join(_dir, "macro_log.csv")
+    if not os.path.exists(path):
+        return
+
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        rows   = [list(r) for r in reader]
+
+    icsa_idx = header.index("icsa_claims")
+    oil_idx  = header.index("oil_spread")
+    date_idx = header.index("date")
+
+    needs_icsa = [r for r in rows if not r[icsa_idx]]
+    needs_oil  = [r for r in rows if not r[oil_idx] and r[date_idx] >= OIL_PATCH_START]
+
+    if not needs_icsa and not needs_oil:
+        print("  patch: nothing to do")
+        return
+
+    print(f"  patch: {len(needs_icsa)} icsa blanks, {len(needs_oil)} oil blanks")
+
+    # ── ICSA ────────────────────────────────────────────────
+    icsa_filled = {}
+    if needs_icsa:
+        raw = fred_full("ICSA")
+        if raw:
+            all_dates = sorted(r[date_idx] for r in rows)
+            icsa_filled = ffill(raw, all_dates)
+
+    # ── OIL SPREAD ──────────────────────────────────────────
+    oil_filled = {}
+    if needs_oil:
+        spot_raw = fred_full("DCOILWTICO")
+        all_dates_sorted = sorted(r[date_idx] for r in rows)
+        spot_ff = ffill(spot_raw, all_dates_sorted)
+
+        # Determine unique forward tickers needed
+        unique_tickers = {}
+        for r in needs_oil:
+            d    = datetime.fromisoformat(r[date_idx]).date()
+            code = _MONTH_CODES[d.month - 1]
+            tkr  = f"CL{code}{str(d.year + 1)[2:]}.NYM"
+            unique_tickers.setdefault(tkr, set()).add(r[date_idx])
+
+        # Fetch each ticker's history once
+        ticker_data = {}
+        for tkr in sorted(unique_tickers):
+            print(f"    fetching {tkr}...")
+            ticker_data[tkr] = yahoo_full(tkr, "2019-01-01")
+            time.sleep(0.3)
+
+        # Compute spread per date
+        for r in needs_oil:
+            d_str = r[date_idx]
+            d     = datetime.fromisoformat(d_str).date()
+            code  = _MONTH_CODES[d.month - 1]
+            tkr   = f"CL{code}{str(d.year + 1)[2:]}.NYM"
+            spot  = spot_ff.get(d_str)
+            fwd   = ticker_data.get(tkr, {}).get(d_str)
+            if spot is not None and fwd is not None:
+                oil_filled[d_str] = round(spot - fwd, 2)
+
+    # ── APPLY ───────────────────────────────────────────────
+    patched_icsa = patched_oil = 0
+    for r in rows:
+        d = r[date_idx]
+        if not r[icsa_idx] and d in icsa_filled:
+            r[icsa_idx] = f"{icsa_filled[d]:.0f}"
+            patched_icsa += 1
+        if not r[oil_idx] and d in oil_filled:
+            r[oil_idx] = f"{oil_filled[d]:.2f}"
+            patched_oil += 1
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
+
+    print(f"  patch: filled {patched_icsa} icsa, {patched_oil} oil rows")
 
 # ── MAIN ─────────────────────────────────────────────────────
 def main():
@@ -321,7 +407,7 @@ def main():
     # MANEMP: FRED unit is thousands of persons; manemp_k column stores that value
     manemp_d = ffill(fred["MANEMP"],      macro_dates)
 
-    # PCEPILFE YoY — compute daily (forward-filled from monthly)
+    # PCEPILFE YoY -- compute daily (forward-filled from monthly)
     pce_monthly = monthly_sorted(fred["PCEPILFE"])
     pce_yoy_monthly = {}
     pce_vals  = [v for _, v in pce_monthly]
@@ -332,7 +418,7 @@ def main():
     pce_yoy_d = ffill(pce_yoy_monthly, macro_dates)
 
     # Gold/silver ratio
-    gold_all  = ffill(ymap["gold"],   macro_dates)
+    gold_all   = ffill(ymap["gold"],   macro_dates)
     silver_all = ffill(ymap["silver"], macro_dates)
 
     macro_rows = []
@@ -358,7 +444,7 @@ def main():
             _safe(credit,            4),
             _safe(indpro_d.get(d),   2),
             _safe(manemp_d.get(d),   0),   # thousands of persons (FRED native)
-            "",                            # oil_spread — not backfillable
+            "",                            # oil_spread -- handled by patch_macro_log
             _safe(gsr,               4),
             rec_counts.get(d, ""),
         ])
@@ -428,6 +514,9 @@ def main():
         write_csv(asset_path, ASSET_HEADER, asset_rows)
     else:
         print("  asset_log: nothing new to write")
+
+    print("\nPatching blank columns...")
+    patch_macro_log()
 
     print("\nDone.")
 
