@@ -1,10 +1,19 @@
-import requests, os, json
+import requests, os
 key = os.environ.get("EIA_API","")
-# List available series for petroleum futures
-url = "https://api.eia.gov/v2/petroleum/pri/fut/facet/series/?api_key=" + key
-r = requests.get(url, timeout=15)
-print("status:", r.status_code)
+url = "https://api.eia.gov/v2/petroleum/pri/fut/data/"
+params = {
+    "api_key": key,
+    "frequency": "daily",
+    "data[0]": "value",
+    "facets[series][]": "RCLC12",
+    "start": "2020-01-01",
+    "sort[0][column]": "period",
+    "sort[0][direction]": "asc",
+    "length": 5,
+}
+r = requests.get(url, params=params, timeout=15)
 d = r.json()
-rows = d.get("response",{}).get("facets",[])
-for row in rows[:30]:
+resp = d.get("response",{})
+print("total:", resp.get("total"))
+for row in resp.get("data",[]):
     print(row)
