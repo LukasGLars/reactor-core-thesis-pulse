@@ -1,0 +1,16 @@
+name: Check EIA
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests -q
+      - name: Check EIA
+        env:
+          EIA_API: ${{ secrets.EIA_API }}
+        run: python check_eia.py
