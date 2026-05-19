@@ -40,6 +40,7 @@ jobs:
       - name: Patch blank columns
         env:
           FRED_API_KEY: ${{ secrets.FRED_API }}
+          EIA_API:      ${{ secrets.EIA_API }}
         run: python -c "from backfill_logs import patch_macro_log; patch_macro_log()"
 
       - name: Run Thesis Pulse
