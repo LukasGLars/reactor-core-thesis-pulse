@@ -129,6 +129,7 @@ def yahoo_history(symbol):
             "pts_1d":   curr - prev,
             "chg_1m":   (curr - closes[-22]) / closes[-22] * 100 if len(closes) >= 22 else None,
             "pts_4w":   curr - closes[-22] if len(closes) >= 22 else None,
+            "pts_8w":   closes[-22] - closes[-44] if len(closes) >= 44 else None,
             "chg_3m":   (curr - closes[-63]) / closes[-63] * 100 if len(closes) >= 63 else None,
             "high_52w": high_52w,
             "dd_52w":   (curr - high_52w) / high_52w * 100,
@@ -521,6 +522,19 @@ def pct(a, b):
     if a and b and b != 0:
         return (a - b) / abs(b) * 100
     return None
+
+def vel_label(curr, prev, threshold=0.15):
+    """Acceleration label comparing two consecutive velocity readings."""
+    if curr is None or prev is None or prev == 0:
+        return ""
+    if (curr > 0) != (prev > 0):
+        return "↕ reversing"
+    ratio = abs(curr) / abs(prev)
+    if ratio > 1 + threshold:
+        return "↑ accel"
+    if ratio < 1 - threshold:
+        return "↓ decel"
+    return "→ steady"
 
 def fmt(val, decimals=2, prefix="", suffix=""):
     if val is None:
@@ -1134,12 +1148,18 @@ def main():
     capex_total_prev = sum(capex_prevs) if capex_prevs else None
 
     # Velocity strings
-    ry_chg_1d = fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a"
-    ry_chg_4w = fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a"
+    ry_chg_1d  = fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a"
+    ry_chg_4w  = fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a"
     dxy_chg_1d = fmt(dxy["pts_1d"], 2, suffix="pts") if dxy else "n/a"
     dxy_chg_4w = fmt(dxy["pts_4w"], 2, suffix="pts") if dxy and dxy["pts_4w"] is not None else "n/a"
     dxy_pts_1d = dxy["pts_1d"] if dxy else None
     dxy_pts_4w = dxy["pts_4w"] if dxy else None
+
+    # Previous 4wk velocity (for acceleration labels)
+    ry_hist    = fred_last_n("DFII10", n=42)
+    ry_prev_4w = (ry_hist[-41][1] - ry_hist[-21][1]) * 100 if len(ry_hist) >= 41 else None
+    ry_curr_4w = (ry_val - ry_4w) * 100                    if ry_val and ry_4w   else None
+    dxy_pts_8w = dxy["pts_8w"] if dxy else None
 
     ry_dist  = int(round(300 - ry_val * 100)) if ry_val is not None else "n/a"
     dxy_dist = round(115 - dxy["price"], 2) if dxy else None
@@ -1157,10 +1177,18 @@ def main():
     lines.append("")
 
     # CORE THESIS DRIVERS
-    ry_4wk_str  = (f"  {(ry_val - ry_4w)*100:+.1f}bps 4wk" if ry_val and ry_4w else "")
-    dxy_4wk_str = (f"  {dxy_pts_4w:+.2f}pts 4wk"           if dxy_pts_4w is not None else "")
-    gsr_4wk_str = (f"  {gs_chg_4w:+.1f} 4wk"               if gs_chg_4w is not None else "")
-    oil_4wk_str = (f"  {oil_spread_chg_4w:+.1f} 4wk"       if oil_spread_chg_4w is not None else "")
+    _ry_vel  = vel_label(ry_curr_4w, ry_prev_4w)
+    _dxy_vel = vel_label(dxy_pts_4w, dxy_pts_8w)
+    ry_4wk_str = ""
+    if ry_val and ry_4w:
+        _prev_str = f" (prev {ry_prev_4w:+.1f}bps)" if ry_prev_4w is not None else ""
+        ry_4wk_str = f"  {ry_curr_4w:+.1f}bps 4wk{_prev_str} {_ry_vel}".rstrip()
+    dxy_4wk_str = ""
+    if dxy_pts_4w is not None:
+        _prev_str = f" (prev {dxy_pts_8w:+.2f}pts)" if dxy_pts_8w is not None else ""
+        dxy_4wk_str = f"  {dxy_pts_4w:+.2f}pts 4wk{_prev_str} {_dxy_vel}".rstrip()
+    gsr_4wk_str = (f"  {gs_chg_4w:+.1f} 4wk"         if gs_chg_4w is not None else "")
+    oil_4wk_str = (f"  {oil_spread_chg_4w:+.1f} 4wk"  if oil_spread_chg_4w is not None else "")
     rec_str     = ""
     lines.append("  CORE THESIS DRIVERS")
     lines.append(f"  {'-'*64}")
