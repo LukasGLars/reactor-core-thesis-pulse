@@ -23,6 +23,5 @@ test_data.py
 
 # Data and output files
 *.xlsx
-*.csv
 data/
 output/
