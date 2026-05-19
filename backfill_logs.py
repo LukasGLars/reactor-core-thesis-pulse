@@ -17,6 +17,7 @@ import os, sys, csv, time, requests
 from datetime import date as _date, datetime, timedelta
 
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
+EIA_API_KEY  = os.environ.get("EIA_API",      "")
 _dir         = os.path.dirname(os.path.abspath(__file__))
 
 MACRO_START     = "2003-01-01"
@@ -241,6 +242,50 @@ def build_recession_count(daily_dates, daily_series, monthly_signals):
         out[d] = count
     return out
 
+# ── EIA WTI FUTURES ─────────────────────────────────────────
+def eia_wti_forward(series="RCLCO12", start="2020-01-01"):
+    """Fetch EIA WTI futures daily prices. RCLCO12 = 12th nearby month (~12M forward)."""
+    if not EIA_API_KEY:
+        return {}
+    url = "https://api.eia.gov/v2/petroleum/pri/fut/data/"
+    out = {}
+    offset = 0
+    while True:
+        params = {
+            "api_key":            EIA_API_KEY,
+            "frequency":          "daily",
+            "data[0]":            "value",
+            "facets[series][]":   series,
+            "start":              start,
+            "sort[0][column]":    "period",
+            "sort[0][direction]": "asc",
+            "length":             5000,
+            "offset":             offset,
+        }
+        try:
+            r = requests.get(url, params=params,
+                             headers={"User-Agent": "thesis-pulse/1.0"}, timeout=30)
+            r.raise_for_status()
+            resp = r.json().get("response", {})
+            rows = resp.get("data", [])
+            for row in rows:
+                period = row.get("period")
+                value  = row.get("value")
+                if period and value is not None:
+                    try:
+                        out[period] = float(value)
+                    except (ValueError, TypeError):
+                        pass
+            total = int(resp.get("total", 0))
+            offset += len(rows)
+            if not rows or offset >= total:
+                break
+        except Exception as e:
+            print("  EIA {} error: {}".format(series, e))
+            break
+    print("  EIA {}: {} obs".format(series, len(out)))
+    return out
+
 # ── COLUMN PATCHER ───────────────────────────────────────────
 def patch_macro_log():
     """Fill blank icsa_claims (all history) and oil_spread (2020+) in macro_log."""
@@ -310,29 +355,36 @@ def patch_macro_log():
         all_dates_sorted = sorted(r[date_idx] for r in rows)
         spot_ff = ffill(spot_raw, all_dates_sorted)
 
-        # Determine unique forward tickers needed
+        # EIA RCLCO12 for historical dates (2020-2025)
+        eia_fwd = eia_wti_forward("RCLCO12", start=OIL_PATCH_START)
+        eia_dates = sorted(set(eia_fwd.keys()) | set(all_dates_sorted))
+        eia_ff = ffill(eia_fwd, eia_dates)
+
+        # Yahoo Finance for recent dates where EIA has no data
+        yahoo_needs = [r for r in needs_oil if r[date_idx] not in eia_ff]
         unique_tickers = {}
-        for r in needs_oil:
+        for r in yahoo_needs:
             d    = datetime.fromisoformat(r[date_idx]).date()
             code = _MONTH_CODES[d.month - 1]
-            tkr  = f"CL{code}{str(d.year + 1)[2:]}.NYM"
+            tkr  = "CL{}{}.NYM".format(code, str(d.year + 1)[2:])
             unique_tickers.setdefault(tkr, set()).add(r[date_idx])
 
-        # Fetch each ticker's history once
         ticker_data = {}
         for tkr in sorted(unique_tickers):
-            print(f"    fetching {tkr}...")
+            print("    fetching {}...".format(tkr))
             ticker_data[tkr] = yahoo_full(tkr, "2019-01-01")
             time.sleep(0.3)
 
-        # Compute spread per date
+        # Compute spread per date — EIA preferred, Yahoo fallback
         for r in needs_oil:
             d_str = r[date_idx]
             d     = datetime.fromisoformat(d_str).date()
-            code  = _MONTH_CODES[d.month - 1]
-            tkr   = f"CL{code}{str(d.year + 1)[2:]}.NYM"
             spot  = spot_ff.get(d_str)
-            fwd   = ticker_data.get(tkr, {}).get(d_str)
+            fwd   = eia_ff.get(d_str)
+            if fwd is None:
+                code = _MONTH_CODES[d.month - 1]
+                tkr  = "CL{}{}.NYM".format(code, str(d.year + 1)[2:])
+                fwd  = ticker_data.get(tkr, {}).get(d_str)
             if spot is not None and fwd is not None:
                 oil_filled[d_str] = round(spot - fwd, 2)
 
