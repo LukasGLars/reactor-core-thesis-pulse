@@ -271,8 +271,12 @@ def patch_macro_log():
     if needs_icsa:
         raw = fred_full("ICSA")
         if raw:
-            all_dates = sorted(r[date_idx] for r in rows)
-            icsa_filled = ffill(raw, all_dates)
+            # ICSA uses week-ending Saturday dates; merge with CSV weekday dates
+            # so forward-fill carries Saturday values into subsequent Mon-Fri dates
+            csv_dates = sorted(r[date_idx] for r in rows)
+            combined  = sorted(set(raw.keys()) | set(csv_dates))
+            icsa_ff   = ffill(raw, combined)
+            icsa_filled = {d: icsa_ff[d] for d in csv_dates if d in icsa_ff}
 
     # ── OIL SPREAD ──────────────────────────────────────────
     oil_filled = {}
