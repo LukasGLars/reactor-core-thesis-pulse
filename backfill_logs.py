@@ -257,14 +257,19 @@ def patch_macro_log():
     oil_idx  = header.index("oil_spread")
     date_idx = header.index("date")
 
+    cs_idx     = header.index("credit_spread_pct")
+
     needs_icsa = [r for r in rows if not r[icsa_idx]]
     needs_oil  = [r for r in rows if not r[oil_idx] and r[date_idx] >= OIL_PATCH_START]
+    # Detect monthly BAA/AAA data by low unique-value count (<500 = ~23yrs of monthly)
+    cs_unique  = len(set(r[cs_idx] for r in rows if r[cs_idx]))
+    needs_cs   = cs_unique < 500
 
-    if not needs_icsa and not needs_oil:
+    if not needs_icsa and not needs_oil and not needs_cs:
         print("  patch: nothing to do")
         return
 
-    print(f"  patch: {len(needs_icsa)} icsa blanks, {len(needs_oil)} oil blanks")
+    print(f"  patch: {len(needs_icsa)} icsa blanks, {len(needs_oil)} oil blanks, credit_spread migration={'yes' if needs_cs else 'no'}")
 
     # ── ICSA ────────────────────────────────────────────────
     icsa_filled = {}
@@ -277,6 +282,22 @@ def patch_macro_log():
             combined  = sorted(set(raw.keys()) | set(csv_dates))
             icsa_ff   = ffill(raw, combined)
             icsa_filled = {d: icsa_ff[d] for d in csv_dates if d in icsa_ff}
+
+    # ── CREDIT SPREAD (monthly BAA/AAA → daily DBAA/DAAA) ───
+    cs_filled = {}
+    if needs_cs:
+        dbaa_raw = fred_full("DBAA")
+        daaa_raw = fred_full("DAAA")
+        if dbaa_raw and daaa_raw:
+            all_dates_sorted = sorted(r[date_idx] for r in rows)
+            combined = sorted(set(dbaa_raw.keys()) | set(daaa_raw.keys()) | set(all_dates_sorted))
+            dbaa_ff  = ffill(dbaa_raw, combined)
+            daaa_ff  = ffill(daaa_raw, combined)
+            for d in all_dates_sorted:
+                b = dbaa_ff.get(d)
+                a = daaa_ff.get(d)
+                if b is not None and a is not None:
+                    cs_filled[d] = round(b - a, 4)
 
     # ── OIL SPREAD ──────────────────────────────────────────
     oil_filled = {}
@@ -312,12 +333,15 @@ def patch_macro_log():
                 oil_filled[d_str] = round(spot - fwd, 2)
 
     # ── APPLY ───────────────────────────────────────────────
-    patched_icsa = patched_oil = 0
+    patched_icsa = patched_oil = patched_cs = 0
     for r in rows:
         d = r[date_idx]
         if not r[icsa_idx] and d in icsa_filled:
             r[icsa_idx] = f"{icsa_filled[d]:.0f}"
             patched_icsa += 1
+        if d in cs_filled:
+            r[cs_idx] = f"{cs_filled[d]:.4f}"
+            patched_cs += 1
         if not r[oil_idx] and d in oil_filled:
             r[oil_idx] = f"{oil_filled[d]:.2f}"
             patched_oil += 1
@@ -327,7 +351,7 @@ def patch_macro_log():
         w.writerow(header)
         w.writerows(rows)
 
-    print(f"  patch: filled {patched_icsa} icsa, {patched_oil} oil rows")
+    print(f"  patch: filled {patched_icsa} icsa, {patched_oil} oil, {patched_cs} credit_spread rows")
 
 # ── MAIN ─────────────────────────────────────────────────────
 def main():
@@ -368,8 +392,8 @@ def main():
         "FEDFUNDS":fred_full("FEDFUNDS"),
         "VIXCLS":  fred_full("VIXCLS"),
         "SP500":   fred_full("SP500"),
-        "BAA":     fred_full("BAA"),
-        "AAA":     fred_full("AAA"),
+        "BAA":     fred_full("DBAA"),
+        "AAA":     fred_full("DAAA"),
     }
 
     # ── MONTHLY SIGNALS ──────────────────────────────────────
