@@ -523,18 +523,6 @@ def pct(a, b):
         return (a - b) / abs(b) * 100
     return None
 
-def vel_label(curr, prev, threshold=0.15):
-    """Acceleration label comparing two consecutive velocity readings."""
-    if curr is None or prev is None or prev == 0:
-        return ""
-    if (curr > 0) != (prev > 0):
-        return "↕ reversing"
-    ratio = abs(curr) / abs(prev)
-    if ratio > 1 + threshold:
-        return "↑ accel"
-    if ratio < 1 - threshold:
-        return "↓ decel"
-    return "→ steady"
 
 def fmt(val, decimals=2, prefix="", suffix=""):
     if val is None:
@@ -1177,16 +1165,14 @@ def main():
     lines.append("")
 
     # CORE THESIS DRIVERS
-    _ry_vel  = vel_label(ry_curr_4w, ry_prev_4w)
-    _dxy_vel = vel_label(dxy_pts_4w, dxy_pts_8w)
     ry_4wk_str = ""
     if ry_val and ry_4w:
         _prev_str = f" (prev {ry_prev_4w:+.1f}bps)" if ry_prev_4w is not None else ""
-        ry_4wk_str = f"  {ry_curr_4w:+.1f}bps 4wk{_prev_str} {_ry_vel}".rstrip()
+        ry_4wk_str = f"  {ry_curr_4w:+.1f}bps 4wk{_prev_str}"
     dxy_4wk_str = ""
     if dxy_pts_4w is not None:
         _prev_str = f" (prev {dxy_pts_8w:+.2f}pts)" if dxy_pts_8w is not None else ""
-        dxy_4wk_str = f"  {dxy_pts_4w:+.2f}pts 4wk{_prev_str} {_dxy_vel}".rstrip()
+        dxy_4wk_str = f"  {dxy_pts_4w:+.2f}pts 4wk{_prev_str}"
     gsr_4wk_str = (f"  {gs_chg_4w:+.1f} 4wk"         if gs_chg_4w is not None else "")
     oil_4wk_str = (f"  {oil_spread_chg_4w:+.1f} 4wk"  if oil_spread_chg_4w is not None else "")
     rec_str     = ""
