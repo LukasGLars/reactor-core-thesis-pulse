@@ -261,9 +261,13 @@ def patch_macro_log():
 
     needs_icsa = [r for r in rows if not r[icsa_idx]]
     needs_oil  = [r for r in rows if not r[oil_idx] and r[date_idx] >= OIL_PATCH_START]
-    # Detect monthly BAA/AAA data by low unique-value count (<500 = ~23yrs of monthly)
-    cs_unique  = len(set(r[cs_idx] for r in rows if r[cs_idx]))
-    needs_cs   = cs_unique < 500
+    # Detect monthly BAA/AAA data: any value repeating >15 consecutive rows = monthly cadence
+    _cs_list = [r[cs_idx] for r in rows if r[cs_idx]]
+    _max_run = _cur = 1
+    for i in range(1, len(_cs_list)):
+        _cur = _cur + 1 if _cs_list[i] == _cs_list[i-1] else 1
+        _max_run = max(_max_run, _cur)
+    needs_cs = _max_run > 15
 
     if not needs_icsa and not needs_oil and not needs_cs:
         print("  patch: nothing to do")
