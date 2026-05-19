@@ -897,14 +897,14 @@ def compute_recession_signals(ry_val, ry_date, ry_prev=None, ry_4w=None):
         "dist_str":   f"{sp_val - ma10:+.0f}" if sp_val and ma10 else "n/a",
     }
 
-    # BAA_AAA spread
-    baa, prev_baa, _ = fred_latest("BAA")
-    aaa, prev_aaa, _ = fred_latest("AAA")
+    # BAA_AAA spread (daily: DBAA/DAAA)
+    baa, prev_baa, _ = fred_latest("DBAA")
+    aaa, prev_aaa, _ = fred_latest("DAAA")
     spread      = round(baa - aaa, 2)             if baa is not None and aaa is not None else None
     prev_spread = round(prev_baa - prev_aaa, 2)   if prev_baa is not None and prev_aaa is not None else None
     thr = ind_cfg["CREDIT_SPREAD"]["threshold_val"]
-    baa_rows = fred_last_n("BAA", n=2)
-    aaa_rows = fred_last_n("AAA", n=2)
+    baa_rows = fred_last_n("DBAA", n=2)
+    aaa_rows = fred_last_n("DAAA", n=2)
     if len(baa_rows) >= 2 and len(aaa_rows) >= 2:
         prev_cs = round(baa_rows[-2][1] - aaa_rows[-2][1], 2)
         cs_chg  = f"{spread - prev_cs:+.2f}%" if spread is not None else "n/a"
