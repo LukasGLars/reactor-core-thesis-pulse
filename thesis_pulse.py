@@ -1273,6 +1273,12 @@ def main():
     else:
         lines.append("  n/a  (recession_config.json not found)")
     lines.append("")
+    try:
+        from vol_events import get_vol_events
+        lines.append(get_vol_events())
+    except Exception as e:
+        lines.append(f"  PULSE  n/a ({e})")
+    lines.append("")
     lines.append("=" * 68)
 
     body = "\n".join(lines)

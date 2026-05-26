@@ -16,11 +16,23 @@ sys.stdout.reconfigure(encoding="utf-8")
 EQUITY_TICKERS = ["LLY", "WMT", "JNJ", "CCJ", "VRT", "AVGO"]
 
 FRED_RELEASES = {
-    54: ("PCE print",  "macro"),
-    10: ("Core CPI",   "macro"),
-    23: ("FOMC",       "macro"),
-    50: ("NFP",        "macro"),
+    54: ("PCE print", "macro"),
+    10: ("Core CPI",  "macro"),
+    50: ("NFP",       "macro"),
 }
+
+# Fed publishes full-year FOMC calendar in advance — more reliable than FRED release_id 23
+# Update annually: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+FOMC_DATES_2026 = [
+    date(2026, 1, 29),
+    date(2026, 3, 19),
+    date(2026, 5, 7),
+    date(2026, 6, 18),
+    date(2026, 7, 30),
+    date(2026, 9, 17),
+    date(2026, 10, 29),
+    date(2026, 12, 10),
+]
 
 WINDOW_DAYS = 60
 URGENT_DAYS = 7
@@ -158,6 +170,11 @@ def _render(events, today):
     return "\n".join(lines)
 
 
+def _fomc_events(today):
+    upcoming = [d for d in FOMC_DATES_2026 if d >= today]
+    return [(min(upcoming), "FOMC", "macro")] if upcoming else []
+
+
 def get_vol_events(demo: bool = False) -> str:
     today  = date.today()
     cutoff = today + timedelta(days=WINDOW_DAYS)
@@ -165,7 +182,7 @@ def get_vol_events(demo: bool = False) -> str:
     if demo:
         events = _demo_events()
     else:
-        events = _fetch_earnings() + _fetch_fred_releases()
+        events = _fetch_earnings() + _fetch_fred_releases() + _fomc_events(today)
         events = [(d, label, typ) for d, label, typ in events if today <= d <= cutoff]
         events.sort(key=lambda x: x[0])
 
