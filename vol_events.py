@@ -102,21 +102,24 @@ def _fetch_fred_releases():
             r = requests.get(
                 "https://api.stlouisfed.org/fred/release/dates",
                 params={
-                    "release_id": release_id,
-                    "api_key":    api_key,
-                    "file_type":  "json",
-                    "sort_order": "asc",
-                    "limit":      10,
+                    "release_id":                       release_id,
+                    "api_key":                          api_key,
+                    "file_type":                        "json",
+                    "sort_order":                       "desc",
+                    "limit":                            10,
+                    "include_release_dates_with_no_data": "true",
                 },
                 timeout=15,
             )
             r.raise_for_status()
 
-            for rd in r.json().get("release_dates", []):
-                d = datetime.strptime(rd["date"], "%Y-%m-%d").date()
-                if d >= today:
-                    events.append((d, label, typ))
-                    break
+            upcoming = [
+                datetime.strptime(rd["date"], "%Y-%m-%d").date()
+                for rd in r.json().get("release_dates", [])
+                if datetime.strptime(rd["date"], "%Y-%m-%d").date() >= today
+            ]
+            if upcoming:
+                events.append((min(upcoming), label, typ))
 
         except Exception as e:
             print(f"  WARNING: FRED release {release_id} ({label}) failed: {e}")
