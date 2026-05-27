@@ -123,6 +123,7 @@ def yahoo_history(symbol):
         curr     = closes[-1]
         prev     = closes[-2]
         high_52w = max(closes)
+        ma_200 = sum(closes[-200:]) / min(200, len(closes))
         return {
             "price":    curr,
             "chg_1d":   (curr - prev) / prev * 100,
@@ -133,6 +134,8 @@ def yahoo_history(symbol):
             "chg_3m":   (curr - closes[-63]) / closes[-63] * 100 if len(closes) >= 63 else None,
             "high_52w": high_52w,
             "dd_52w":   (curr - high_52w) / high_52w * 100,
+            "ma_200":   ma_200,
+            "vs_ma_200": (curr - ma_200) / ma_200 * 100,
         }
     except Exception:
         return None
@@ -491,6 +494,7 @@ def get_oil_term_spread():
     Returns spread_chg_4w: 4-week change in the spread (spot_4w - fwd_4w).
     """
     spot, _, spot_4w, spot_date = fred_recent("DCOILWTICO", lookback=20)
+    _, _, spot_8w, _            = fred_recent("DCOILWTICO", lookback=40)
 
     MONTH_CODES = "FGHJKMNQUVXZ"
     today = date.today()
@@ -499,9 +503,8 @@ def get_oil_term_spread():
     code = MONTH_CODES[target_month - 1]
     fwd_ticker = f"CL{code}{str(target_year)[2:]}.NYM"
 
-    fwd = None
-    fwd_4w = None
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{fwd_ticker}?interval=1d&range=2mo"
+    fwd = fwd_4w = fwd_8w = None
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{fwd_ticker}?interval=1d&range=3mo"
     try:
         r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if r.status_code == 200:
@@ -509,13 +512,16 @@ def get_oil_term_spread():
             closes = [c for c in closes if c is not None]
             fwd    = closes[-1]  if closes           else None
             fwd_4w = closes[-20] if len(closes) >= 20 else None
+            fwd_8w = closes[-40] if len(closes) >= 40 else None
     except Exception:
         pass
 
-    spread        = round(spot    - fwd,    2) if spot    and fwd    else None
-    spread_4w     = round(spot_4w - fwd_4w, 2) if spot_4w and fwd_4w else None
-    spread_chg_4w = round(spread  - spread_4w, 1) if spread is not None and spread_4w is not None else None
-    return spot, fwd, spread, spread_chg_4w, spot_date, fwd_ticker
+    spread          = round(spot    - fwd,    2) if spot    and fwd    else None
+    spread_4w       = round(spot_4w - fwd_4w, 2) if spot_4w and fwd_4w else None
+    spread_8w       = round(spot_8w - fwd_8w, 2) if spot_8w and fwd_8w else None
+    spread_chg_4w   = round(spread   - spread_4w, 1) if spread    is not None and spread_4w is not None else None
+    prev_chg_4w     = round(spread_4w - spread_8w, 1) if spread_4w is not None and spread_8w is not None else None
+    return spot, fwd, spread, spread_chg_4w, prev_chg_4w, spot_date, fwd_ticker
 
 # ── HELPERS ────────────────────────────────────────────────
 def pct(a, b):
@@ -1119,7 +1125,7 @@ def main():
     uranium, uranium_prev, uranium_date = get_uranium()
 
     print("Fetching oil term spread...")
-    oil_spot, oil_fwd, oil_spread, oil_spread_chg_4w, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
+    oil_spot, oil_fwd, oil_spread, oil_spread_chg_4w, oil_prev_chg_4w, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
 
     print("Fetching recession indicators...")
     rec = compute_recession_signals(ry_val, ry_date, ry_prev=ry_prev, ry_4w=ry_4w)
@@ -1164,88 +1170,60 @@ def main():
     lines.append("=" * 68)
     lines.append("")
 
-    # CORE THESIS DRIVERS
-    ry_4wk_str = ""
-    if ry_val and ry_4w:
-        _prev_str = f" (prev {ry_prev_4w:+.1f}bps)" if ry_prev_4w is not None else ""
-        ry_4wk_str = f"  {ry_curr_4w:+.1f}bps 4wk{_prev_str}"
-    dxy_4wk_str = ""
-    if dxy_pts_4w is not None:
-        _prev_str = f" (prev {dxy_pts_8w:+.2f}pts)" if dxy_pts_8w is not None else ""
-        dxy_4wk_str = f"  {dxy_pts_4w:+.2f}pts 4wk{_prev_str}"
-    gsr_4wk_str = (f"  {gs_chg_4w:+.1f} 4wk"         if gs_chg_4w is not None else "")
-    oil_4wk_str = (f"  {oil_spread_chg_4w:+.1f} 4wk"  if oil_spread_chg_4w is not None else "")
-    rec_str     = ""
-    lines.append("  CORE THESIS DRIVERS")
+    # THESIS
+    lines.append("  THESIS")
     lines.append(f"  {'-'*64}")
-    lines.append(f"  10Y Real Yield    {fmt(ry_val, 2, suffix='%') if ry_val else 'n/a'}{ry_4wk_str}{stale_flag(ry_date)}")
-    lines.append(f"  DXY               {fmt(dxy_price, 2) if dxy_price else 'n/a'}{dxy_4wk_str}")
-    lines.append(f"  Oil term spread   {'$'+fmt(oil_spread,1)+'/bbl' if oil_spread is not None else 'n/a'}{oil_4wk_str}{stale_flag(oil_spot_date)}")
-    lines.append(f"  GSR               {fmt(gs_ratio, 1) if gs_ratio else 'n/a'}{gsr_4wk_str}")
-    lines.append(f"  Recession         {rec['composite']}/{rec['denominator']}{rec_str}" if rec else "  Recession         n/a")
-    lines.append("")
 
-    # HEDGES
-    lines.append("  HEDGES")
-    lines.append(f"  {'-'*64}")
-    lines.append(f"  Gold              {fmt_px(gold)}")
-    lines.append(f"  Silver            {fmt_px(silver)}")
-    if gs_ratio is not None:
-        dist_p85 = 83.36 - gs_ratio
-        dist_p90 = 86.45 - gs_ratio
-        lines.append(f"  GSR               {gs_ratio:.1f}{gsr_4wk_str}  {dist_p85:+.1f} to p85(83.4)  {dist_p90:+.1f} to p90(86.5)")
-    else:
-        lines.append("  GSR               n/a")
-    lines.append("")
+    ry_level_s = f"{ry_val:.2f}%" if ry_val is not None else "n/a"
+    ry_vel_s   = f"vel {ry_curr_4w:+.0f}bps/4wk" if ry_curr_4w is not None else ""
+    ry_prev_s  = f"prev {ry_prev_4w:+.0f}bps"    if ry_prev_4w is not None else ""
+    ry_flag_s  = "[>50bps]" if ry_curr_4w is not None and abs(ry_curr_4w) > 50 else ""
+    lines.append(f"  {'RY':<12}{ry_level_s:<9}  {ry_vel_s:<18} {ry_prev_s:<14} {ry_flag_s}".rstrip())
 
-    # CARRY
-    lines.append("  CARRY")
-    lines.append(f"  {'-'*64}")
-    lines.append(f"  LLY               {fmt_px(lly_px)}")
-    if lly_c:
-        lly_yoy = fmt(pct(lly_c["val"], lly_p["val"] if lly_p else None), 1)
-        lines.append(f"  LLY revenue       {fmt_bn(lly_c['val'])}  {lly_yoy}% YoY  ({lly_c['end']}){stale_flag(lly_c['end'])}")
-    lines.append(f"  WMT               {fmt_px(wmt_px)}")
-    if wmt_c:
-        wmt_yoy = fmt(pct(wmt_c["val"], wmt_p["val"] if wmt_p else None), 1)
-        lines.append(f"  WMT revenue       {fmt_bn(wmt_c['val'])}  {wmt_yoy}% YoY  ({wmt_c['end']}){stale_flag(wmt_c['end'])}")
-    lines.append(f"  JNJ               {fmt_px(jnj_px)}")
-    if jnj_c:
-        jnj_yoy = fmt(pct(jnj_c["val"], jnj_p["val"] if jnj_p else None), 1)
-        lines.append(f"  JNJ revenue       {fmt_bn(jnj_c['val'])}  {jnj_yoy}% YoY  ({jnj_c['end']}){stale_flag(jnj_c['end'])}")
-    if jnj_div_c:
-        jnj_div_yoy = fmt(pct(jnj_div_c["val"], jnj_div_p["val"] if jnj_div_p else None), 1)
-        lines.append(f"  JNJ div/share     ${jnj_div_c['val']:.2f}  {jnj_div_yoy}% YoY  ({jnj_div_c['end']}){stale_flag(jnj_div_c['end'])}")
-    lines.append("")
+    dxy_level_s = f"{dxy_price:.2f}" if dxy_price is not None else "n/a"
+    dxy_vel_s   = f"vel {dxy_pts_4w:+.2f}/4wk"  if dxy_pts_4w is not None else ""
+    dxy_prev_s  = f"prev {dxy_pts_8w:+.2f}"      if dxy_pts_8w is not None else ""
+    lines.append(f"  {'DXY':<12}{dxy_level_s:<9}  {dxy_vel_s:<18} {dxy_prev_s}".rstrip())
 
-    # CYCLICAL
-    lines.append("  CYCLICAL")
-    lines.append(f"  {'-'*64}")
-    lines.append(f"  CCJ               {fmt_px(ccj_px)}")
-    lines.append(f"  Uranium           ${uranium:.2f}/lb  1m {uranium_mom}%{stale_flag(uranium_date)}" if uranium is not None else "  Uranium           n/a")
-    lines.append("")
+    gsr_level_s = f"{gs_ratio:.1f}" if gs_ratio is not None else "n/a"
+    lines.append(f"  {'GSR':<12}{gsr_level_s:<9}  T1 83.4          T2 86.5")
 
-    # CONVEXITY
-    lines.append("  CONVEXITY")
-    lines.append(f"  {'-'*64}")
-    lines.append(f"  VRT               {fmt_px(vrt_px)}")
-    if vrt_c:
-        vrt_yoy = fmt(pct(vrt_c["val"], vrt_p["val"] if vrt_p else None), 1)
-        lines.append(f"  VRT revenue       {fmt_bn(vrt_c['val'])}  {vrt_yoy}% YoY  ({vrt_c['end']}){stale_flag(vrt_c['end'])}")
-    lines.append(f"  AVGO              {fmt_px(avgo_px)}")
-    if avgo_c:
-        avgo_yoy = fmt(pct(avgo_c["val"], avgo_p["val"] if avgo_p else None), 1)
-        lines.append(f"  AVGO revenue      {fmt_bn(avgo_c['val'])}  {avgo_yoy}% YoY  ({avgo_c['end']}){stale_flag(avgo_c['end'])}")
-    if nvda_c:
-        nvda_yoy = fmt(pct(nvda_c["val"], nvda_p["val"] if nvda_p else None), 1)
-        lines.append(f"  NVDA revenue      {fmt_bn(nvda_c['val'])}  {nvda_yoy}% YoY  ({nvda_c['end']}){stale_flag(nvda_c['end'])}")
+    oil_level_s = f"${oil_spread:.1f}" if oil_spread is not None else "n/a"
+    oil_vel_s   = f"vel {oil_spread_chg_4w:+.1f}/4wk"  if oil_spread_chg_4w is not None else ""
+    oil_prev_s  = f"prev {oil_prev_chg_4w:+.1f}"       if oil_prev_chg_4w is not None else ""
+    lines.append(f"  {'Oil spread':<12}{oil_level_s:<9}  {oil_vel_s:<18} {oil_prev_s}".rstrip())
+
     if capex_total:
-        lines.append(f"  Hyperscaler capex {fmt_bn(capex_total)}  {capex_yoy}% YoY")
-        for ticker, c, p in [("MSFT", msft_c, msft_p), ("GOOGL", googl_c, googl_p),
-                              ("AMZN", amzn_c, amzn_p), ("META",  meta_c,  meta_p)]:
-            if c:
-                c_yoy = fmt(pct(c["val"], p["val"] if p else None), 1)
-                lines.append(f"    {ticker:<6}           {fmt_bn(c['val'])}  {c_yoy}% YoY  ({c['end']}){stale_flag(c['end'])}")
+        lines.append(f"  {'Capex':<12}{fmt_bn(capex_total)}  {capex_yoy}% YoY")
+    else:
+        lines.append(f"  {'Capex':<12}n/a")
+
+    if rec:
+        prev_rec_s = f"prev {rec['prev_composite']}/{rec['denominator']}" if rec.get("prev_composite") is not None else ""
+        lines.append(f"  {'Recession':<12}{rec['composite']}/{rec['denominator']}    {prev_rec_s}".rstrip())
+    else:
+        lines.append(f"  {'Recession':<12}n/a")
+    lines.append("")
+
+    # POSITIONS
+    lines.append(f"  {'POSITIONS':<22} {'price':<11} vs 200MA")
+    lines.append(f"  {'-'*64}")
+
+    def _pos_line(name, px_dict):
+        if px_dict is None:
+            return f"  {name:<22} {'n/a':<11} n/a"
+        price_s = f"${px_dict['price']:.2f}"
+        ma_s    = f"{px_dict['vs_ma_200']:+.1f}%" if px_dict.get("vs_ma_200") is not None else "n/a"
+        return f"  {name:<22} {price_s:<11} {ma_s}"
+
+    lines.append(_pos_line("Gold",   gold))
+    lines.append(_pos_line("Silver", silver))
+    lines.append(_pos_line("LLY",    lly_px))
+    lines.append(_pos_line("WMT",    wmt_px))
+    lines.append(_pos_line("JNJ",    jnj_px))
+    lines.append(_pos_line("CCJ",    ccj_px))
+    lines.append(_pos_line("VRT",    vrt_px))
+    lines.append(_pos_line("AVGO",   avgo_px))
     lines.append("")
 
     # RECESSION TRACKER
