@@ -1169,6 +1169,12 @@ def main():
     lines.append(f"  THESIS PULSE  |  {today}")
     lines.append("=" * 68)
     lines.append("")
+    try:
+        from vol_events import get_vol_events
+        lines.append(get_vol_events())
+    except Exception as e:
+        lines.append(f"  PULSE  n/a ({e})")
+    lines.append("")
 
     # THESIS
     lines.append("  THESIS")
@@ -1206,15 +1212,16 @@ def main():
     lines.append("")
 
     # POSITIONS
-    lines.append(f"  {'POSITIONS':<22} {'price':<11} vs 200MA")
+    lines.append(f"  {'POSITIONS':<22} {'price':<11} {'vs 200MA':<12} vs 52w high")
     lines.append(f"  {'-'*64}")
 
     def _pos_line(name, px_dict):
         if px_dict is None:
-            return f"  {name:<22} {'n/a':<11} n/a"
+            return f"  {name:<22} {'n/a':<11} {'n/a':<12} n/a"
         price_s = f"${px_dict['price']:.2f}"
-        ma_s    = f"{px_dict['vs_ma_200']:+.1f}%" if px_dict.get("vs_ma_200") is not None else "n/a"
-        return f"  {name:<22} {price_s:<11} {ma_s}"
+        ma_s    = f"{px_dict['vs_ma_200']:+.1f}%"  if px_dict.get("vs_ma_200") is not None else "n/a"
+        hi_s    = f"{px_dict['dd_52w']:+.1f}%"     if px_dict.get("dd_52w")    is not None else "n/a"
+        return f"  {name:<22} {price_s:<11} {ma_s:<12} {hi_s}"
 
     lines.append(_pos_line("Gold",   gold))
     lines.append(_pos_line("Silver", silver))
@@ -1250,12 +1257,6 @@ def main():
             lines.append(f"  {ind:<18} {level_s:<11} {thr_s:<13} {chg_s:<11} {dist_s}{bullet}")
     else:
         lines.append("  n/a  (recession_config.json not found)")
-    lines.append("")
-    try:
-        from vol_events import get_vol_events
-        lines.append(get_vol_events())
-    except Exception as e:
-        lines.append(f"  PULSE  n/a ({e})")
     lines.append("")
     lines.append("=" * 68)
 
