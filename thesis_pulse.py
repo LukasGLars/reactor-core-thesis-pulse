@@ -1134,8 +1134,10 @@ def main():
     gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
     gs_ratio_1d_ago  = (gold["price"] - gold["pts_1d"]) / (silver["price"] - silver["pts_1d"]) if gold and silver and gold.get("pts_1d") and silver.get("pts_1d") else None
     gs_ratio_4w_ago  = (gold["price"] - gold["pts_4w"]) / (silver["price"] - silver["pts_4w"]) if gold and silver and gold.get("pts_4w") and silver.get("pts_4w") else None
+    gs_ratio_8w_ago  = (gold["price"] - gold["pts_4w"] - gold["pts_8w"]) / (silver["price"] - silver["pts_4w"] - silver["pts_8w"]) if gold and silver and gold.get("pts_8w") and silver.get("pts_8w") and gs_ratio_4w_ago else None
     gs_chg_1d        = gs_ratio - gs_ratio_1d_ago if gs_ratio and gs_ratio_1d_ago else None
     gs_chg_4w        = gs_ratio - gs_ratio_4w_ago if gs_ratio and gs_ratio_4w_ago else None
+    gs_prev_4w       = gs_ratio_4w_ago - gs_ratio_8w_ago if gs_ratio_4w_ago and gs_ratio_8w_ago else None
     capex_vals       = [x["val"] for x in [msft_c, googl_c, amzn_c, meta_c] if x]
     capex_prevs      = [x["val"] for x in [msft_p, googl_p, amzn_p, meta_p] if x]
     capex_total      = sum(capex_vals)  if capex_vals  else None
@@ -1192,7 +1194,9 @@ def main():
     lines.append(f"  {'DXY':<12}{dxy_level_s:<9}  {dxy_vel_s:<18} {dxy_prev_s}".rstrip())
 
     gsr_level_s = f"{gs_ratio:.1f}" if gs_ratio is not None else "n/a"
-    lines.append(f"  {'GSR':<12}{gsr_level_s:<9}  T1 83.4          T2 86.5")
+    gsr_vel_s   = f"vel {gs_chg_4w:+.1f}/4wk"  if gs_chg_4w  is not None else ""
+    gsr_prev_s  = f"prev {gs_prev_4w:+.1f}"    if gs_prev_4w is not None else ""
+    lines.append(f"  {'GSR':<12}{gsr_level_s:<9}  {gsr_vel_s:<18} {gsr_prev_s:<14} T1 83.4  T2 86.5")
 
     oil_level_s = f"${oil_spread:.1f}" if oil_spread is not None else "n/a"
     oil_vel_s   = f"vel {oil_spread_chg_4w:+.1f}/4wk"  if oil_spread_chg_4w is not None else ""
