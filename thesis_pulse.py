@@ -1200,29 +1200,44 @@ def main():
     lines.append("  THESIS")
     lines.append(f"  {'-'*64}")
 
-    ry_curr_s      = f"{ry_val:.2f}%"          if ry_val          is not None else "n/a"
-    ry_prev_s      = f"({ry_prev:.2f})"         if ry_prev         is not None else ""
-    ry_med_s       = f"3wMed {ry_med_3w:.2f}%"  if ry_med_3w       is not None else ""
-    ry_pmed_s      = f"prev {ry_prev_med_3w:.2f}%" if ry_prev_med_3w is not None else ""
-    lines.append(f"  {'RY':<12}{ry_curr_s} {ry_prev_s:<10}  {ry_med_s:<18} {ry_pmed_s}".rstrip())
+    def _sig(curr, med, pmed):
+        if curr is None or med is None or pmed is None:
+            return None
+        mid = (med + pmed) / 2
+        return (curr - mid) / mid * 100 if mid != 0 else None
 
-    dxy_curr_s     = f"{dxy_price:.2f}"             if dxy_price              is not None else "n/a"
-    dxy_prev_s     = f"({dxy['prev_close']:.2f})"   if dxy and dxy.get("prev_close") is not None else ""
-    dxy_med_s      = f"3wMed {dxy['med_3w']:.2f}"   if dxy and dxy.get("med_3w")     is not None else ""
-    dxy_pmed_s     = f"prev {dxy['prev_med_3w']:.2f}" if dxy and dxy.get("prev_med_3w") is not None else ""
-    lines.append(f"  {'DXY':<12}{dxy_curr_s} {dxy_prev_s:<10}  {dxy_med_s:<18} {dxy_pmed_s}".rstrip())
+    ry_sig  = _sig(ry_val,    ry_med_3w,            ry_prev_med_3w)
+    dxy_sig = _sig(dxy_price, dxy["med_3w"] if dxy else None, dxy["prev_med_3w"] if dxy else None)
+    gsr_sig = _sig(gs_ratio,  gsr_med_3w,           gsr_prev_med_3w)
+    oil_sig = _sig(oil_spread, oil_spread_med_3w,   oil_spread_prev_med_3w)
 
-    gsr_curr_s     = f"{gs_ratio:.1f}"              if gs_ratio      is not None else "n/a"
-    gsr_prev_s     = f"({gs_ratio_prev:.1f})"        if gs_ratio_prev is not None else ""
-    gsr_med_s      = f"3wMed {gsr_med_3w:.1f}"       if gsr_med_3w    is not None else ""
-    gsr_pmed_s     = f"prev {gsr_prev_med_3w:.1f}"   if gsr_prev_med_3w is not None else ""
-    lines.append(f"  {'GSR':<12}{gsr_curr_s} {gsr_prev_s:<8}  {gsr_med_s:<18} {gsr_pmed_s:<14} T1 83.4  T2 86.5".rstrip())
+    ry_curr_s  = f"{ry_val:.2f}%"             if ry_val          is not None else "n/a"
+    ry_prev_s  = f"({ry_prev:.2f})"            if ry_prev         is not None else ""
+    ry_med_s   = f"3wMed {ry_med_3w:.2f}%"    if ry_med_3w       is not None else ""
+    ry_pmed_s  = f"prev {ry_prev_med_3w:.2f}%" if ry_prev_med_3w is not None else ""
+    ry_sig_s   = f"sig {ry_sig:+.2f}%"         if ry_sig         is not None else ""
+    lines.append(f"  {'RY':<12}{ry_curr_s} {ry_prev_s:<10}  {ry_med_s:<18} {ry_pmed_s:<16} {ry_sig_s}".rstrip())
 
-    oil_curr_s     = f"${oil_spread:.1f}"             if oil_spread          is not None else "n/a"
-    oil_prev_s     = f"(${oil_spread_prev:.1f})"      if oil_spread_prev     is not None else ""
-    oil_med_s      = f"3wMed ${oil_spread_med_3w:.1f}"      if oil_spread_med_3w      is not None else ""
-    oil_pmed_s     = f"prev ${oil_spread_prev_med_3w:.1f}"  if oil_spread_prev_med_3w is not None else ""
-    lines.append(f"  {'Oil spread':<12}{oil_curr_s} {oil_prev_s:<9}  {oil_med_s:<18} {oil_pmed_s}".rstrip())
+    dxy_curr_s = f"{dxy_price:.2f}"               if dxy_price                       is not None else "n/a"
+    dxy_prev_s = f"({dxy['prev_close']:.2f})"     if dxy and dxy.get("prev_close")   is not None else ""
+    dxy_med_s  = f"3wMed {dxy['med_3w']:.2f}"     if dxy and dxy.get("med_3w")       is not None else ""
+    dxy_pmed_s = f"prev {dxy['prev_med_3w']:.2f}" if dxy and dxy.get("prev_med_3w")  is not None else ""
+    dxy_sig_s  = f"sig {dxy_sig:+.2f}%"            if dxy_sig                        is not None else ""
+    lines.append(f"  {'DXY':<12}{dxy_curr_s} {dxy_prev_s:<10}  {dxy_med_s:<18} {dxy_pmed_s:<16} {dxy_sig_s}".rstrip())
+
+    gsr_curr_s = f"{gs_ratio:.1f}"               if gs_ratio        is not None else "n/a"
+    gsr_prev_s = f"({gs_ratio_prev:.1f})"         if gs_ratio_prev   is not None else ""
+    gsr_med_s  = f"3wMed {gsr_med_3w:.1f}"        if gsr_med_3w      is not None else ""
+    gsr_pmed_s = f"prev {gsr_prev_med_3w:.1f}"    if gsr_prev_med_3w is not None else ""
+    gsr_sig_s  = f"sig {gsr_sig:+.2f}%"            if gsr_sig        is not None else ""
+    lines.append(f"  {'GSR':<12}{gsr_curr_s} {gsr_prev_s:<8}  {gsr_med_s:<18} {gsr_pmed_s:<16} {gsr_sig_s:<14} T1 83.4  T2 86.5".rstrip())
+
+    oil_curr_s = f"${oil_spread:.1f}"              if oil_spread              is not None else "n/a"
+    oil_prev_s = f"(${oil_spread_prev:.1f})"       if oil_spread_prev         is not None else ""
+    oil_med_s  = f"3wMed ${oil_spread_med_3w:.1f}" if oil_spread_med_3w       is not None else ""
+    oil_pmed_s = f"prev ${oil_spread_prev_med_3w:.1f}" if oil_spread_prev_med_3w is not None else ""
+    oil_sig_s  = f"sig {oil_sig:+.2f}%"             if oil_sig                is not None else ""
+    lines.append(f"  {'Oil spread':<12}{oil_curr_s} {oil_prev_s:<9}  {oil_med_s:<18} {oil_pmed_s:<16} {oil_sig_s}".rstrip())
 
     if capex_total:
         lines.append(f"  {'Capex':<12}{fmt_bn(capex_total)}  {capex_yoy}% YoY")
