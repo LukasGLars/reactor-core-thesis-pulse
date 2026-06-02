@@ -1254,15 +1254,10 @@ def main():
     )
 
     if capex_total:
-        lines.append(f"  Capex   {fmt_bn(capex_total)}  {capex_yoy}% YoY")
+        prev_s = f" ({fmt_bn(capex_total_prev)})" if capex_total_prev else ""
+        lines.append(f"  Capex   {fmt_bn(capex_total)}{prev_s}  {capex_yoy}% YoY")
     else:
         lines.append(f"  Capex   n/a")
-
-    if rec:
-        prev_rec_s = f"prv {rec['prev_composite']}/{rec['denominator']}" if rec.get("prev_composite") is not None else ""
-        lines.append(f"  Rec     {rec['composite']}/{rec['denominator']}  {prev_rec_s}".rstrip())
-    else:
-        lines.append(f"  Rec     n/a")
     lines.append("")
 
     # POSITIONS
