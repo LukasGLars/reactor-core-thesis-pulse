@@ -124,18 +124,25 @@ def yahoo_history(symbol):
         prev     = closes[-2]
         high_52w = max(closes)
         ma_200 = sum(closes[-200:]) / min(200, len(closes))
+        import statistics as _stats
+        med_3w      = _stats.median(closes[-15:])    if len(closes) >= 15 else None
+        prev_med_3w = _stats.median(closes[-30:-15]) if len(closes) >= 30 else None
         return {
-            "price":    curr,
-            "chg_1d":   (curr - prev) / prev * 100,
-            "pts_1d":   curr - prev,
-            "chg_1m":   (curr - closes[-22]) / closes[-22] * 100 if len(closes) >= 22 else None,
-            "pts_4w":   curr - closes[-22] if len(closes) >= 22 else None,
-            "pts_8w":   closes[-22] - closes[-44] if len(closes) >= 44 else None,
-            "chg_3m":   (curr - closes[-63]) / closes[-63] * 100 if len(closes) >= 63 else None,
-            "high_52w": high_52w,
-            "dd_52w":   (curr - high_52w) / high_52w * 100,
-            "ma_200":   ma_200,
-            "vs_ma_200": (curr - ma_200) / ma_200 * 100,
+            "price":        curr,
+            "prev_close":   prev,
+            "closes_30":    closes[-30:],
+            "chg_1d":       (curr - prev) / prev * 100,
+            "pts_1d":       curr - prev,
+            "chg_1m":       (curr - closes[-22]) / closes[-22] * 100 if len(closes) >= 22 else None,
+            "pts_4w":       curr - closes[-22] if len(closes) >= 22 else None,
+            "pts_8w":       closes[-22] - closes[-44] if len(closes) >= 44 else None,
+            "chg_3m":       (curr - closes[-63]) / closes[-63] * 100 if len(closes) >= 63 else None,
+            "high_52w":     high_52w,
+            "dd_52w":       (curr - high_52w) / high_52w * 100,
+            "ma_200":       ma_200,
+            "vs_ma_200":    (curr - ma_200) / ma_200 * 100,
+            "med_3w":       med_3w,
+            "prev_med_3w":  prev_med_3w,
         }
     except Exception:
         return None
@@ -503,25 +510,34 @@ def get_oil_term_spread():
     code = MONTH_CODES[target_month - 1]
     fwd_ticker = f"CL{code}{str(target_year)[2:]}.NYM"
 
-    fwd = fwd_4w = fwd_8w = None
+    fwd = fwd_prev = fwd_closes = None
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{fwd_ticker}?interval=1d&range=3mo"
     try:
         r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if r.status_code == 200:
             closes = r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"]
             closes = [c for c in closes if c is not None]
-            fwd    = closes[-1]  if closes           else None
-            fwd_4w = closes[-20] if len(closes) >= 20 else None
-            fwd_8w = closes[-40] if len(closes) >= 40 else None
+            fwd       = closes[-1]  if closes           else None
+            fwd_prev  = closes[-2]  if len(closes) >= 2 else None
+            fwd_closes = closes[-31:] if len(closes) >= 2 else None
     except Exception:
         pass
 
-    spread          = round(spot    - fwd,    2) if spot    and fwd    else None
-    spread_4w       = round(spot_4w - fwd_4w, 2) if spot_4w and fwd_4w else None
-    spread_8w       = round(spot_8w - fwd_8w, 2) if spot_8w and fwd_8w else None
-    spread_chg_4w   = round(spread   - spread_4w, 1) if spread    is not None and spread_4w is not None else None
-    prev_chg_4w     = round(spread_4w - spread_8w, 1) if spread_4w is not None and spread_8w is not None else None
-    return spot, fwd, spread, spread_chg_4w, prev_chg_4w, spot_date, fwd_ticker
+    spot_rows  = fred_last_n("DCOILWTICO", n=31)
+    spot_vals  = [v for _, v in spot_rows]
+
+    spread      = round(spot          - fwd,      2) if spot      and fwd      else None
+    spread_prev = round(spot_vals[-2] - fwd_prev, 2) if len(spot_vals) >= 2 and fwd_prev else None
+
+    import statistics as _stats
+    spread_med_3w = spread_prev_med_3w = None
+    if fwd_closes and len(spot_vals) >= 30 and len(fwd_closes) >= 30:
+        n = min(len(spot_vals), len(fwd_closes))
+        paired = [s - f for s, f in zip(spot_vals[-n:], fwd_closes[-n:])]
+        spread_med_3w      = round(_stats.median(paired[-15:]),    2) if len(paired) >= 15 else None
+        spread_prev_med_3w = round(_stats.median(paired[-30:-15]), 2) if len(paired) >= 30 else None
+
+    return spot, fwd, spread, spread_prev, spread_med_3w, spread_prev_med_3w, spot_date, fwd_ticker
 
 # ── HELPERS ────────────────────────────────────────────────
 def pct(a, b):
@@ -689,6 +705,16 @@ def fred_last_n(series_id, n=15):
         except Exception:
             time.sleep(0.5 * (2 ** (attempt - 1)))
     return []
+
+
+def fred_3w_medians(series_id):
+    """Returns (med_3w, prev_med_3w) using last 30 daily observations."""
+    import statistics as _stats
+    rows = fred_last_n(series_id, n=30)
+    vals = [v for _, v in rows]
+    med_3w      = _stats.median(vals[-15:])  if len(vals) >= 15 else None
+    prev_med_3w = _stats.median(vals[-30:-15]) if len(vals) >= 30 else None
+    return med_3w, prev_med_3w
 
 
 # ── CAPE SCRAPER ───────────────────────────────────────────
@@ -1125,45 +1151,37 @@ def main():
     uranium, uranium_prev, uranium_date = get_uranium()
 
     print("Fetching oil term spread...")
-    oil_spot, oil_fwd, oil_spread, oil_spread_chg_4w, oil_prev_chg_4w, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
+    oil_spot, oil_fwd, oil_spread, oil_spread_prev, oil_spread_med_3w, oil_spread_prev_med_3w, oil_spot_date, oil_fwd_ticker = get_oil_term_spread()
 
     print("Fetching recession indicators...")
     rec = compute_recession_signals(ry_val, ry_date, ry_prev=ry_prev, ry_4w=ry_4w)
 
     # Compute derived values
-    gs_ratio         = gold["price"] / silver["price"] if gold and silver else None
-    gs_ratio_1d_ago  = (gold["price"] - gold["pts_1d"]) / (silver["price"] - silver["pts_1d"]) if gold and silver and gold.get("pts_1d") and silver.get("pts_1d") else None
-    gs_ratio_4w_ago  = (gold["price"] - gold["pts_4w"]) / (silver["price"] - silver["pts_4w"]) if gold and silver and gold.get("pts_4w") and silver.get("pts_4w") else None
-    gs_ratio_8w_ago  = (gold["price"] - gold["pts_4w"] - gold["pts_8w"]) / (silver["price"] - silver["pts_4w"] - silver["pts_8w"]) if gold and silver and gold.get("pts_8w") and silver.get("pts_8w") and gs_ratio_4w_ago else None
-    gs_chg_1d        = gs_ratio - gs_ratio_1d_ago if gs_ratio and gs_ratio_1d_ago else None
-    gs_chg_4w        = gs_ratio - gs_ratio_4w_ago if gs_ratio and gs_ratio_4w_ago else None
-    gs_prev_4w       = gs_ratio_4w_ago - gs_ratio_8w_ago if gs_ratio_4w_ago and gs_ratio_8w_ago else None
+    gs_ratio      = gold["price"] / silver["price"]             if gold and silver else None
+    gs_ratio_prev = gold["prev_close"] / silver["prev_close"]   if gold and silver and gold.get("prev_close") and silver.get("prev_close") else None
+
+    import statistics as _stats
+    gold_c30   = gold["closes_30"]   if gold   and gold.get("closes_30")   else []
+    silver_c30 = silver["closes_30"] if silver and silver.get("closes_30") else []
+    if len(gold_c30) >= 30 and len(silver_c30) >= 30:
+        gsr_series      = [g / s for g, s in zip(gold_c30, silver_c30)]
+        gsr_med_3w      = _stats.median(gsr_series[-15:])
+        gsr_prev_med_3w = _stats.median(gsr_series[-30:-15])
+    else:
+        gsr_med_3w = gsr_prev_med_3w = None
+
     capex_vals       = [x["val"] for x in [msft_c, googl_c, amzn_c, meta_c] if x]
     capex_prevs      = [x["val"] for x in [msft_p, googl_p, amzn_p, meta_p] if x]
     capex_total      = sum(capex_vals)  if capex_vals  else None
     capex_total_prev = sum(capex_prevs) if capex_prevs else None
 
-    # Velocity strings
-    ry_chg_1d  = fmt((ry_val - ry_prev) * 100, 1, suffix="bps") if ry_val and ry_prev else "n/a"
-    ry_chg_4w  = fmt((ry_val - ry_4w)   * 100, 1, suffix="bps") if ry_val and ry_4w   else "n/a"
-    dxy_chg_1d = fmt(dxy["pts_1d"], 2, suffix="pts") if dxy else "n/a"
-    dxy_chg_4w = fmt(dxy["pts_4w"], 2, suffix="pts") if dxy and dxy["pts_4w"] is not None else "n/a"
-    dxy_pts_1d = dxy["pts_1d"] if dxy else None
-    dxy_pts_4w = dxy["pts_4w"] if dxy else None
+    ry_med_3w, ry_prev_med_3w = fred_3w_medians("DFII10")
 
-    # Previous 4wk velocity (for acceleration labels)
-    ry_hist    = fred_last_n("DFII10", n=42)
-    ry_prev_4w = (ry_hist[-41][1] - ry_hist[-21][1]) * 100 if len(ry_hist) >= 41 else None
-    ry_curr_4w = (ry_val - ry_4w) * 100                    if ry_val and ry_4w   else None
-    dxy_pts_8w = dxy["pts_8w"] if dxy else None
-
-    ry_dist  = int(round(300 - ry_val * 100)) if ry_val is not None else "n/a"
-    dxy_dist = round(115 - dxy["price"], 2) if dxy else None
+    ry_dist   = int(round(300 - ry_val * 100)) if ry_val is not None else "n/a"
     dxy_price = dxy["price"] if dxy else None
-    dxy_chg_1d_pct = dxy["chg_1d"] if dxy else None
 
     uranium_mom = fmt(pct(uranium, uranium_prev), 1) if uranium and uranium_prev else "n/a"
-    capex_yoy = fmt(pct(capex_total, capex_total_prev), 1) if capex_total and capex_total_prev else "n/a"
+    capex_yoy   = fmt(pct(capex_total, capex_total_prev), 1) if capex_total and capex_total_prev else "n/a"
 
     # Build output
     lines = []
@@ -1182,26 +1200,29 @@ def main():
     lines.append("  THESIS")
     lines.append(f"  {'-'*64}")
 
-    ry_level_s = f"{ry_val:.2f}%" if ry_val is not None else "n/a"
-    ry_vel_s   = f"vel {ry_curr_4w:+.0f}bps/4wk" if ry_curr_4w is not None else ""
-    ry_prev_s  = f"prev {ry_prev_4w:+.0f}bps"    if ry_prev_4w is not None else ""
-    ry_flag_s  = "[>50bps]" if ry_curr_4w is not None and abs(ry_curr_4w) > 50 else ""
-    lines.append(f"  {'RY':<12}{ry_level_s:<9}  {ry_vel_s:<18} {ry_prev_s:<14} {ry_flag_s}".rstrip())
+    ry_curr_s      = f"{ry_val:.2f}%"          if ry_val          is not None else "n/a"
+    ry_prev_s      = f"({ry_prev:.2f})"         if ry_prev         is not None else ""
+    ry_med_s       = f"3wMed {ry_med_3w:.2f}%"  if ry_med_3w       is not None else ""
+    ry_pmed_s      = f"prev {ry_prev_med_3w:.2f}%" if ry_prev_med_3w is not None else ""
+    lines.append(f"  {'RY':<12}{ry_curr_s} {ry_prev_s:<10}  {ry_med_s:<18} {ry_pmed_s}".rstrip())
 
-    dxy_level_s = f"{dxy_price:.2f}" if dxy_price is not None else "n/a"
-    dxy_vel_s   = f"vel {dxy_pts_4w:+.2f}/4wk"  if dxy_pts_4w is not None else ""
-    dxy_prev_s  = f"prev {dxy_pts_8w:+.2f}"      if dxy_pts_8w is not None else ""
-    lines.append(f"  {'DXY':<12}{dxy_level_s:<9}  {dxy_vel_s:<18} {dxy_prev_s}".rstrip())
+    dxy_curr_s     = f"{dxy_price:.2f}"             if dxy_price              is not None else "n/a"
+    dxy_prev_s     = f"({dxy['prev_close']:.2f})"   if dxy and dxy.get("prev_close") is not None else ""
+    dxy_med_s      = f"3wMed {dxy['med_3w']:.2f}"   if dxy and dxy.get("med_3w")     is not None else ""
+    dxy_pmed_s     = f"prev {dxy['prev_med_3w']:.2f}" if dxy and dxy.get("prev_med_3w") is not None else ""
+    lines.append(f"  {'DXY':<12}{dxy_curr_s} {dxy_prev_s:<10}  {dxy_med_s:<18} {dxy_pmed_s}".rstrip())
 
-    gsr_level_s = f"{gs_ratio:.1f}" if gs_ratio is not None else "n/a"
-    gsr_vel_s   = f"vel {gs_chg_4w:+.1f}/4wk"  if gs_chg_4w  is not None else ""
-    gsr_prev_s  = f"prev {gs_prev_4w:+.1f}"    if gs_prev_4w is not None else ""
-    lines.append(f"  {'GSR':<12}{gsr_level_s:<9}  {gsr_vel_s:<18} {gsr_prev_s:<14} T1 83.4  T2 86.5")
+    gsr_curr_s     = f"{gs_ratio:.1f}"              if gs_ratio      is not None else "n/a"
+    gsr_prev_s     = f"({gs_ratio_prev:.1f})"        if gs_ratio_prev is not None else ""
+    gsr_med_s      = f"3wMed {gsr_med_3w:.1f}"       if gsr_med_3w    is not None else ""
+    gsr_pmed_s     = f"prev {gsr_prev_med_3w:.1f}"   if gsr_prev_med_3w is not None else ""
+    lines.append(f"  {'GSR':<12}{gsr_curr_s} {gsr_prev_s:<8}  {gsr_med_s:<18} {gsr_pmed_s:<14} T1 83.4  T2 86.5".rstrip())
 
-    oil_level_s = f"${oil_spread:.1f}" if oil_spread is not None else "n/a"
-    oil_vel_s   = f"vel {oil_spread_chg_4w:+.1f}/4wk"  if oil_spread_chg_4w is not None else ""
-    oil_prev_s  = f"prev {oil_prev_chg_4w:+.1f}"       if oil_prev_chg_4w is not None else ""
-    lines.append(f"  {'Oil spread':<12}{oil_level_s:<9}  {oil_vel_s:<18} {oil_prev_s}".rstrip())
+    oil_curr_s     = f"${oil_spread:.1f}"             if oil_spread          is not None else "n/a"
+    oil_prev_s     = f"(${oil_spread_prev:.1f})"      if oil_spread_prev     is not None else ""
+    oil_med_s      = f"3wMed ${oil_spread_med_3w:.1f}"      if oil_spread_med_3w      is not None else ""
+    oil_pmed_s     = f"prev ${oil_spread_prev_med_3w:.1f}"  if oil_spread_prev_med_3w is not None else ""
+    lines.append(f"  {'Oil spread':<12}{oil_curr_s} {oil_prev_s:<9}  {oil_med_s:<18} {oil_pmed_s}".rstrip())
 
     if capex_total:
         lines.append(f"  {'Capex':<12}{fmt_bn(capex_total)}  {capex_yoy}% YoY")
