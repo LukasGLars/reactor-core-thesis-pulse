@@ -91,7 +91,8 @@ def _fetch_implied_move(ticker, price):
         if straddle <= 0 or price <= 0:
             return None
         return straddle / price * 100
-    except Exception:
+    except Exception as e:
+        print(f"  implied_move {ticker}: {type(e).__name__}: {e}")
         return None
 
 
