@@ -95,7 +95,6 @@ def _fetch_implied_move(ticker, price, earn_date):
         call_mid = _mid(call_row)
         put_mid  = _mid(put_row)
         straddle = call_mid + put_mid
-        print(f"  impl_dbg {ticker}: exp={post[0]} atm={atm_strike} call={call_mid:.2f} put={put_mid:.2f} straddle={straddle:.2f}")
         if straddle <= 0 or price <= 0:
             return None
         return straddle / price * 100
