@@ -60,9 +60,10 @@ def _fetch_price_data(ticker):
         return None, None
 
 
-def _fetch_implied_move(ticker, price):
+def _fetch_implied_move(ticker, price, earn_date):
     """
-    ATM straddle / price using nearest options expiry via yfinance.
+    ATM straddle / price using the first expiry AFTER earnings date.
+    That expiry is where the earnings premium is priced in.
     Returns float (%) or None on any failure.
     """
     try:
@@ -71,13 +72,13 @@ def _fetch_implied_move(ticker, price):
         exps = t.options
         if not exps:
             return None
-        today     = date.today()
-        future    = [e for e in exps if datetime.strptime(e, "%Y-%m-%d").date() > today]
-        if not future:
+        # first expiry on or after earnings date — earnings vol lives here
+        post = [e for e in exps if datetime.strptime(e, "%Y-%m-%d").date() >= earn_date]
+        if not post:
             return None
-        chain  = t.option_chain(future[0])
-        calls  = chain.calls
-        puts   = chain.puts
+        chain = t.option_chain(post[0])
+        calls = chain.calls
+        puts  = chain.puts
         if calls.empty or puts.empty:
             return None
         atm_strike = min(calls["strike"].values, key=lambda x: abs(x - price))
@@ -85,13 +86,20 @@ def _fetch_implied_move(ticker, price):
         put_row    = puts[puts["strike"]   == atm_strike]
         if call_row.empty or put_row.empty:
             return None
-        call_mid = (call_row["bid"].values[0] + call_row["ask"].values[0]) / 2
-        put_mid  = (put_row["bid"].values[0]  + put_row["ask"].values[0])  / 2
+        def _mid(row):
+            bid, ask = row["bid"].values[0], row["ask"].values[0]
+            if bid > 0 and ask > 0:
+                return (bid + ask) / 2
+            return row["lastPrice"].values[0]  # fallback when market closed
+
+        call_mid = _mid(call_row)
+        put_mid  = _mid(put_row)
         straddle = call_mid + put_mid
         if straddle <= 0 or price <= 0:
             return None
         return straddle / price * 100
-    except Exception:
+    except Exception as e:
+        print(f"  implied_move {ticker}: {type(e).__name__}: {e}")
         return None
 
 
@@ -142,7 +150,7 @@ def _fetch_earnings():
             time.sleep(1)
             price, dd_52w = _fetch_price_data(ticker)
             time.sleep(1)
-            impl_move = _fetch_implied_move(ticker, price) if price else None
+            impl_move = _fetch_implied_move(ticker, price, earn_date) if price else None
             events.append((earn_date, f"{ticker} earnings", "earnings",
                            {"dd_52w": dd_52w, "impl_move": impl_move}))
         else:
