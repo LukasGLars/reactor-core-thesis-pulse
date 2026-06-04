@@ -62,42 +62,55 @@ def _fetch_price_data(ticker):
 
 def _fetch_implied_move(ticker, price, earn_date):
     """
-    ATM straddle / price using the first expiry AFTER earnings date.
-    That expiry is where the earnings premium is priced in.
-    Returns float (%) or None on any failure.
+    Earnings-specific implied move via straddle differential:
+      post_straddle (first expiry >= earnings) minus
+      pre_straddle  (last expiry < earnings)
+    Subtracting pre strips time premium, leaving just the earnings jump.
+    Falls back to post_straddle alone if no pre-expiry exists.
     """
+    def _mid(row):
+        bid, ask = row["bid"].values[0], row["ask"].values[0]
+        if bid > 0 and ask > 0:
+            return (bid + ask) / 2
+        return row["lastPrice"].values[0]
+
+    def _atm_straddle(chain, px):
+        calls, puts = chain.calls, chain.puts
+        if calls.empty or puts.empty:
+            return None
+        atm   = min(calls["strike"].values, key=lambda x: abs(x - px))
+        c_row = calls[calls["strike"] == atm]
+        p_row = puts[puts["strike"]   == atm]
+        if c_row.empty or p_row.empty:
+            return None
+        return _mid(c_row) + _mid(p_row)
+
     try:
         import yfinance as yf
         t    = yf.Ticker(ticker)
         exps = t.options
         if not exps:
             return None
-        # first expiry on or after earnings date — earnings vol lives here
-        post = [e for e in exps if datetime.strptime(e, "%Y-%m-%d").date() >= earn_date]
-        if not post:
-            return None
-        chain = t.option_chain(post[0])
-        calls = chain.calls
-        puts  = chain.puts
-        if calls.empty or puts.empty:
-            return None
-        atm_strike = min(calls["strike"].values, key=lambda x: abs(x - price))
-        call_row   = calls[calls["strike"] == atm_strike]
-        put_row    = puts[puts["strike"]   == atm_strike]
-        if call_row.empty or put_row.empty:
-            return None
-        def _mid(row):
-            bid, ask = row["bid"].values[0], row["ask"].values[0]
-            if bid > 0 and ask > 0:
-                return (bid + ask) / 2
-            return row["lastPrice"].values[0]  # fallback when market closed
 
-        call_mid = _mid(call_row)
-        put_mid  = _mid(put_row)
-        straddle = call_mid + put_mid
-        if straddle <= 0 or price <= 0:
+        exp_dates = [datetime.strptime(e, "%Y-%m-%d").date() for e in exps]
+        post_exps = [(d, s) for d, s in zip(exp_dates, exps) if d >= earn_date]
+        pre_exps  = [(d, s) for d, s in zip(exp_dates, exps) if d <  earn_date]
+        if not post_exps:
             return None
-        return straddle / price * 100
+
+        post_straddle = _atm_straddle(t.option_chain(post_exps[0][1]), price)
+        if not post_straddle or post_straddle <= 0:
+            return None
+
+        pre_straddle = None
+        if pre_exps:
+            pre_straddle = _atm_straddle(t.option_chain(pre_exps[-1][1]), price)
+
+        earnings_move = post_straddle - (pre_straddle or 0)
+        if earnings_move <= 0 or price <= 0:
+            return None
+        return earnings_move / price * 100
+
     except Exception as e:
         print(f"  implied_move {ticker}: {type(e).__name__}: {e}")
         return None
