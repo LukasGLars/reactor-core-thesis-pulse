@@ -992,6 +992,43 @@ def _num(s):
     except Exception:
         return None
 
+def _migrate_macro_log():
+    path = os.path.join(_dir, "macro_log.csv")
+    if not os.path.exists(path):
+        return
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames or "ry_cvstc" in reader.fieldnames:
+            return
+        rows = list(reader)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=_MACRO_HEADER, extrasaction="ignore")
+        w.writeheader()
+        for row in rows:
+            w.writerow(row)
+    print("  macro_log.csv: migrated — added CvsTC columns")
+
+
+def _read_prev_cvstc():
+    path = os.path.join(_dir, "macro_log.csv")
+    if not os.path.exists(path):
+        return None, None, None, None
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        today = date.today().isoformat()
+        prev_rows = [r for r in rows if r.get("date") != today]
+        if not prev_rows:
+            return None, None, None, None
+        last = prev_rows[-1]
+        def _g(key):
+            v = last.get(key, "")
+            return float(v) if v else None
+        return _g("ry_cvstc"), _g("dxy_cvstc"), _g("gsr_cvstc"), _g("oil_cvstc")
+    except Exception:
+        return None, None, None, None
+
+
 def _append_csv(path, header, row):
     """Append one row to a CSV file, writing the header if the file is new. Skips if date already present."""
     write_header = not os.path.exists(path)
@@ -1020,6 +1057,7 @@ _MACRO_HEADER = [
     "core_pce_yoy_pct", "icsa_claims", "fed_funds_pct", "vix",
     "sp500", "credit_spread_pct", "indpro", "manemp_k",
     "oil_spread", "gs_ratio", "recession_count",
+    "ry_cvstc", "dxy_cvstc", "gsr_cvstc", "oil_cvstc",
 ]
 
 # Columns for asset_log.csv:
@@ -1037,7 +1075,8 @@ _ASSET_HEADER = [
     "portfolio_ret",
 ]
 
-def append_macro_log(today, dxy_price, ry_val, rec, gs_ratio, oil_spread):
+def append_macro_log(today, dxy_price, ry_val, rec, gs_ratio, oil_spread,
+                     ry_cvstc=None, dxy_cvstc=None, gsr_cvstc=None, oil_cvstc=None):
     ind = (rec or {}).get("indicators", {})
 
     def _iv(key):
@@ -1065,6 +1104,10 @@ def append_macro_log(today, dxy_price, ry_val, rec, gs_ratio, oil_spread):
         _safe(oil_spread, 2),
         _safe(gs_ratio, 4),
         (rec or {}).get("composite", ""),
+        _safe(ry_cvstc, 4),
+        _safe(dxy_cvstc, 4),
+        _safe(gsr_cvstc, 4),
+        _safe(oil_cvstc, 4),
     ]
     _append_csv(os.path.join(_dir, "macro_log.csv"), _MACRO_HEADER, row)
 
@@ -1200,6 +1243,8 @@ def main():
     lines.append("  THESIS")
     lines.append(f"  {'-'*38}")
 
+    prev_ry_cvstc, prev_dxy_cvstc, prev_gsr_cvstc, prev_oil_cvstc = _read_prev_cvstc()
+
     def _cvstc(curr, med, pmed):
         if curr is None or med is None or pmed is None:
             return None
@@ -1211,8 +1256,11 @@ def main():
     gsr_cvstc = _cvstc(gs_ratio,  gsr_med_3w,         gsr_prev_med_3w)
     oil_cvstc = _cvstc(oil_spread, oil_spread_med_3w, oil_spread_prev_med_3w)
 
-    def _thesis_block(label, curr_s, prev_s, med_s, pmed_s, cvstc, extra=None):
-        c = f"CvsTC {cvstc:+.2f}%" if cvstc is not None else ""
+    def _thesis_block(label, curr_s, prev_s, med_s, pmed_s, cvstc, prev_cvstc=None, extra=None):
+        if cvstc is not None:
+            c = f"CvsTC {cvstc:+.2f}% ({prev_cvstc:+.2f}%)" if prev_cvstc is not None else f"CvsTC {cvstc:+.2f}%"
+        else:
+            c = ""
         lines.append(f"  {label:<8}{curr_s} {prev_s:<10} {c}".rstrip())
         lines.append(f"          3wM {med_s}  prv {pmed_s}".rstrip())
         if extra:
@@ -1225,7 +1273,7 @@ def main():
         f"({ry_prev:.2f})"         if ry_prev         is not None else "",
         f"{ry_med_3w:.2f}%"        if ry_med_3w       is not None else "n/a",
         f"{ry_prev_med_3w:.2f}%"   if ry_prev_med_3w  is not None else "n/a",
-        ry_cvstc,
+        ry_cvstc, prev_ry_cvstc,
     )
     _thesis_block(
         "DXY",
@@ -1233,7 +1281,7 @@ def main():
         f"({dxy['prev_close']:.2f})"      if dxy and dxy.get("prev_close")  is not None else "",
         f"{dxy['med_3w']:.2f}"            if dxy and dxy.get("med_3w")      is not None else "n/a",
         f"{dxy['prev_med_3w']:.2f}"       if dxy and dxy.get("prev_med_3w") is not None else "n/a",
-        dxy_cvstc,
+        dxy_cvstc, prev_dxy_cvstc,
     )
     _thesis_block(
         "GSR",
@@ -1241,7 +1289,7 @@ def main():
         f"({gs_ratio_prev:.1f})"      if gs_ratio_prev   is not None else "",
         f"{gsr_med_3w:.1f}"           if gsr_med_3w      is not None else "n/a",
         f"{gsr_prev_med_3w:.1f}"      if gsr_prev_med_3w is not None else "n/a",
-        gsr_cvstc,
+        gsr_cvstc, prev_gsr_cvstc,
         extra="T1 83.4  T2 86.5",
     )
     _thesis_block(
@@ -1250,7 +1298,7 @@ def main():
         f"(${oil_spread_prev:.1f})"        if oil_spread_prev         is not None else "",
         f"${oil_spread_med_3w:.1f}"        if oil_spread_med_3w       is not None else "n/a",
         f"${oil_spread_prev_med_3w:.1f}"   if oil_spread_prev_med_3w  is not None else "n/a",
-        oil_cvstc,
+        oil_cvstc, prev_oil_cvstc,
     )
 
     if capex_total:
@@ -1313,8 +1361,11 @@ def main():
     print(body)
 
     print("Writing daily logs...")
+    _migrate_macro_log()
     usdsek_price = usdsek["price"] if usdsek else None
-    append_macro_log(today, dxy_price, ry_val, rec, gs_ratio, oil_spread)
+    append_macro_log(today, dxy_price, ry_val, rec, gs_ratio, oil_spread,
+                     ry_cvstc=ry_cvstc, dxy_cvstc=dxy_cvstc,
+                     gsr_cvstc=gsr_cvstc, oil_cvstc=oil_cvstc)
     append_asset_log(today, gold, silver, lly_px, wmt_px, vrt_px, ccj_px,
                      avgo_px, jnj_px, usdsek_price)
 
