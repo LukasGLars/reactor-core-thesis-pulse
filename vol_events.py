@@ -86,10 +86,16 @@ def _fetch_implied_move(ticker, price, earn_date):
         put_row    = puts[puts["strike"]   == atm_strike]
         if call_row.empty or put_row.empty:
             return None
-        call_mid = (call_row["bid"].values[0] + call_row["ask"].values[0]) / 2
-        put_mid  = (put_row["bid"].values[0]  + put_row["ask"].values[0])  / 2
+        def _mid(row):
+            bid, ask = row["bid"].values[0], row["ask"].values[0]
+            if bid > 0 and ask > 0:
+                return (bid + ask) / 2
+            return row["lastPrice"].values[0]  # fallback when market closed
+
+        call_mid = _mid(call_row)
+        put_mid  = _mid(put_row)
         straddle = call_mid + put_mid
-        print(f"  impl_dbg {ticker}: exp={post[0]} atm={atm_strike} call_mid={call_mid:.2f} put_mid={put_mid:.2f} straddle={straddle:.2f}")
+        print(f"  impl_dbg {ticker}: exp={post[0]} atm={atm_strike} call={call_mid:.2f} put={put_mid:.2f} straddle={straddle:.2f}")
         if straddle <= 0 or price <= 0:
             return None
         return straddle / price * 100
