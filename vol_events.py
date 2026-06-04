@@ -69,15 +69,19 @@ def _fetch_implied_move(ticker, price):
         import yfinance as yf
         t    = yf.Ticker(ticker)
         exps = t.options
+        print(f"  impl_dbg {ticker}: exps={exps}")
         if not exps:
+            print(f"  impl_dbg {ticker}: no exps")
             return None
         today     = date.today()
         future    = [e for e in exps if datetime.strptime(e, "%Y-%m-%d").date() > today]
+        print(f"  impl_dbg {ticker}: future={future[:3]}")
         if not future:
             return None
         chain  = t.option_chain(future[0])
         calls  = chain.calls
         puts   = chain.puts
+        print(f"  impl_dbg {ticker}: calls={len(calls)} puts={len(puts)}")
         if calls.empty or puts.empty:
             return None
         atm_strike = min(calls["strike"].values, key=lambda x: abs(x - price))
@@ -88,6 +92,7 @@ def _fetch_implied_move(ticker, price):
         call_mid = (call_row["bid"].values[0] + call_row["ask"].values[0]) / 2
         put_mid  = (put_row["bid"].values[0]  + put_row["ask"].values[0])  / 2
         straddle = call_mid + put_mid
+        print(f"  impl_dbg {ticker}: price={price} atm={atm_strike} straddle={straddle:.2f}")
         if straddle <= 0 or price <= 0:
             return None
         return straddle / price * 100
