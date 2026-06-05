@@ -127,6 +127,11 @@ def yahoo_history(symbol):
         import statistics as _stats
         med_3w      = _stats.median(closes[-15:])    if len(closes) >= 15 else None
         prev_med_3w = _stats.median(closes[-30:-15]) if len(closes) >= 30 else None
+        volumes = r.json()["chart"]["result"][0]["indicators"]["quote"][0].get("volume", [])
+        volumes = [v for v in volumes if v is not None]
+        avg_vol = sum(volumes[-20:]) / min(20, len(volumes)) if len(volumes) >= 2 else None
+        rel_vol = volumes[-1] / avg_vol if avg_vol and avg_vol > 0 else None
+
         return {
             "price":        curr,
             "prev_close":   prev,
@@ -143,6 +148,7 @@ def yahoo_history(symbol):
             "vs_ma_200":    (curr - ma_200) / ma_200 * 100,
             "med_3w":       med_3w,
             "prev_med_3w":  prev_med_3w,
+            "rel_vol":      rel_vol,
         }
     except Exception:
         return None
@@ -1363,22 +1369,24 @@ def main():
     lines.append("")
 
     # POSITIONS
-    lines.append(f"  {'POSITIONS':<18} {'price':<10} {'vs 200MA':<9} {'vs 52wH':<9} {'sup':<8} res")
-    lines.append(f"  {'-'*64}")
+    lines.append(f"  {'POSITIONS':<18} {'price':<10} {'vs 200MA':<9} {'vs 52wH':<9} {'sup':<8} {'res':<8} vol")
+    lines.append(f"  {'-'*68}")
 
     def _pos_line(name, px_dict, levels=None):
         if px_dict is None:
-            return f"  {name:<18} {'n/a':<10} {'n/a':<9} {'n/a':<9} {'—':<8} —"
+            return f"  {name:<18} {'n/a':<10} {'n/a':<9} {'n/a':<9} {'—':<8} {'—':<8} —"
         price_s = f"${px_dict['price']:.2f}"
         ma_s    = f"{px_dict['vs_ma_200']:+.1f}%" if px_dict.get("vs_ma_200") is not None else "n/a"
         hi_s    = f"{px_dict['dd_52w']:+.1f}%"    if px_dict.get("dd_52w")    is not None else "n/a"
+        rv      = px_dict.get("rel_vol")
+        vol_s   = f"{rv:.1f}x" if rv is not None else "—"
         if levels and any(v is not None for v in levels):
             sup, res, tgt, brk = levels
             sup_s = f"${sup:.0f}" if sup is not None else "—"
             res_s = f"${res:.0f}" if res is not None else "—"
         else:
             sup_s = res_s = "—"
-        return f"  {name:<18} {price_s:<10} {ma_s:<9} {hi_s:<9} {sup_s:<8} {res_s}"
+        return f"  {name:<18} {price_s:<10} {ma_s:<9} {hi_s:<9} {sup_s:<8} {res_s:<8} {vol_s}"
 
     print("Fetching technical levels...")
     gold_levels   = get_tech_levels("GC%3DF");  time.sleep(1)
