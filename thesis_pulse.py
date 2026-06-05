@@ -1363,24 +1363,22 @@ def main():
     lines.append("")
 
     # POSITIONS
-    lines.append(f"  {'POSITIONS':<18} {'price':<10} {'vs 200MA':<9} {'vs 52wH':<9} {'brk':<8} {'sup':<8} {'res':<8} tgt")
-    lines.append(f"  {'-'*76}")
+    lines.append(f"  {'POSITIONS':<18} {'price':<10} {'vs 200MA':<9} {'vs 52wH':<9} {'sup':<8} res")
+    lines.append(f"  {'-'*64}")
 
     def _pos_line(name, px_dict, levels=None):
         if px_dict is None:
-            return f"  {name:<18} {'n/a':<10} {'n/a':<9} {'n/a':<9} {'—':<8} {'—':<8} {'—':<8} —"
+            return f"  {name:<18} {'n/a':<10} {'n/a':<9} {'n/a':<9} {'—':<8} —"
         price_s = f"${px_dict['price']:.2f}"
         ma_s    = f"{px_dict['vs_ma_200']:+.1f}%" if px_dict.get("vs_ma_200") is not None else "n/a"
         hi_s    = f"{px_dict['dd_52w']:+.1f}%"    if px_dict.get("dd_52w")    is not None else "n/a"
         if levels and any(v is not None for v in levels):
             sup, res, tgt, brk = levels
-            brk_s = f"${brk:.0f}" if brk is not None else "—"
             sup_s = f"${sup:.0f}" if sup is not None else "—"
             res_s = f"${res:.0f}" if res is not None else "—"
-            tgt_s = f"${tgt:.0f}" if tgt is not None else "—"
         else:
-            brk_s = sup_s = res_s = tgt_s = "—"
-        return f"  {name:<18} {price_s:<10} {ma_s:<9} {hi_s:<9} {brk_s:<8} {sup_s:<8} {res_s:<8} {tgt_s}"
+            sup_s = res_s = "—"
+        return f"  {name:<18} {price_s:<10} {ma_s:<9} {hi_s:<9} {sup_s:<8} {res_s}"
 
     print("Fetching technical levels...")
     gold_levels   = get_tech_levels("GC%3DF")
