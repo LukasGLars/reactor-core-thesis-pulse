@@ -717,6 +717,60 @@ def fred_3w_medians(series_id):
     return med_3w, prev_med_3w
 
 
+# ── TECHNICAL LEVELS ──────────────────────────────────────
+def get_tech_levels(ticker):
+    """Returns (sup, res, tgt, brk) from weekly closes. sup/res bracket current price."""
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1wk&range=5y"
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code != 200:
+            return None, None, None, None
+        closes = [c for c in r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"] if c is not None]
+        if len(closes) < 20:
+            return None, None, None, None
+
+        price  = closes[-1]
+        high5y = max(closes)
+        low2y  = min(closes[-104:]) if len(closes) >= 104 else min(closes)
+
+        def _cluster(levels, pct=0.04):
+            if not levels:
+                return []
+            s = sorted(levels)
+            groups = [[s[0]]]
+            for v in s[1:]:
+                if (v - groups[-1][-1]) / groups[-1][-1] < pct:
+                    groups[-1].append(v)
+                else:
+                    groups.append([v])
+            return [sum(g) / len(g) for g in groups]
+
+        peaks   = [closes[i] for i in range(2, len(closes)-2)
+                   if closes[i] > closes[i-1] and closes[i] > closes[i-2]
+                   and closes[i] > closes[i+1] and closes[i] > closes[i+2]]
+        troughs = [closes[i] for i in range(2, len(closes)-2)
+                   if closes[i] < closes[i-1] and closes[i] < closes[i-2]
+                   and closes[i] < closes[i+1] and closes[i] < closes[i+2]]
+
+        c_peaks   = _cluster(peaks)
+        c_troughs = _cluster(troughs)
+
+        above = [c for c in c_peaks if c > price * 1.01]
+        res   = above[0] if above else None
+        tgt   = next((c for c in above if c > res * 1.05), None) if res else None
+
+        below_t = sorted([c for c in c_troughs if c < price * 0.99], reverse=True)
+        sup = next((c for c in below_t if c > price * 0.75), None)
+        if sup is None:
+            sup = high5y - (high5y - low2y) * 0.236
+
+        brk = high5y - (high5y - low2y) * 0.382
+
+        return sup, res, tgt, brk
+    except Exception:
+        return None, None, None, None
+
+
 # ── CAPE SCRAPER ───────────────────────────────────────────
 def get_cape():
     try:
@@ -1309,23 +1363,36 @@ def main():
     lines.append("")
 
     # POSITIONS
-    lines.append(f"  {'POSITIONS':<22} {'price':<11} {'vs 200MA':<12} vs 52w high")
-    lines.append(f"  {'-'*64}")
+    lines.append(f"  {'POSITIONS':<18} {'price':<10} {'vs 200MA':<9} {'vs 52wH':<9} {'sup':<8} {'res':<8} {'tgt':<8} brk")
+    lines.append(f"  {'-'*76}")
 
-    def _pos_line(name, px_dict):
+    def _pos_line(name, px_dict, levels=None):
         if px_dict is None:
-            return f"  {name:<22} {'n/a':<11} {'n/a':<12} n/a"
+            return f"  {name:<18} {'n/a':<10} {'n/a':<9} n/a"
         price_s = f"${px_dict['price']:.2f}"
-        ma_s    = f"{px_dict['vs_ma_200']:+.1f}%"  if px_dict.get("vs_ma_200") is not None else "n/a"
-        hi_s    = f"{px_dict['dd_52w']:+.1f}%"     if px_dict.get("dd_52w")    is not None else "n/a"
-        return f"  {name:<22} {price_s:<11} {ma_s:<12} {hi_s}"
+        ma_s    = f"{px_dict['vs_ma_200']:+.1f}%" if px_dict.get("vs_ma_200") is not None else "n/a"
+        hi_s    = f"{px_dict['dd_52w']:+.1f}%"    if px_dict.get("dd_52w")    is not None else "n/a"
+        base    = f"  {name:<18} {price_s:<10} {ma_s:<9} {hi_s:<9}"
+        if levels and any(v is not None for v in levels):
+            sup, res, tgt, brk = levels
+            sup_s = f"${sup:.0f}" if sup is not None else ""
+            res_s = f"${res:.0f}" if res is not None else ""
+            tgt_s = f"${tgt:.0f}" if tgt is not None else ""
+            brk_s = f"${brk:.0f}" if brk is not None else ""
+            return f"{base} {sup_s:<8} {res_s:<8} {tgt_s:<8} {brk_s}"
+        return base
 
-    lines.append(_pos_line("Gold",   gold))
-    lines.append(_pos_line("Silver", silver))
+    print("Fetching technical levels...")
+    gold_levels   = get_tech_levels("GC%3DF")
+    silver_levels = get_tech_levels("SI%3DF")
+    ccj_levels    = get_tech_levels("CCJ")
+
+    lines.append(_pos_line("Gold",   gold,   gold_levels))
+    lines.append(_pos_line("Silver", silver, silver_levels))
     lines.append(_pos_line("LLY",    lly_px))
     lines.append(_pos_line("WMT",    wmt_px))
     lines.append(_pos_line("JNJ",    jnj_px))
-    lines.append(_pos_line("CCJ",    ccj_px))
+    lines.append(_pos_line("CCJ",    ccj_px, ccj_levels))
     lines.append(_pos_line("VRT",    vrt_px))
     lines.append(_pos_line("AVGO",   avgo_px))
     lines.append("")
