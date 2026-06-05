@@ -1381,18 +1381,23 @@ def main():
         return f"  {name:<18} {price_s:<10} {ma_s:<9} {hi_s:<9} {sup_s:<8} {res_s}"
 
     print("Fetching technical levels...")
-    gold_levels   = get_tech_levels("GC%3DF")
-    silver_levels = get_tech_levels("SI%3DF")
-    ccj_levels    = get_tech_levels("CCJ")
+    gold_levels   = get_tech_levels("GC%3DF");  time.sleep(1)
+    silver_levels = get_tech_levels("SI%3DF");  time.sleep(1)
+    lly_levels    = get_tech_levels("LLY");     time.sleep(1)
+    wmt_levels    = get_tech_levels("WMT");     time.sleep(1)
+    jnj_levels    = get_tech_levels("JNJ");     time.sleep(1)
+    ccj_levels    = get_tech_levels("CCJ");     time.sleep(1)
+    vrt_levels    = get_tech_levels("VRT");     time.sleep(1)
+    avgo_levels   = get_tech_levels("AVGO")
 
     lines.append(_pos_line("Gold",   gold,   gold_levels))
     lines.append(_pos_line("Silver", silver, silver_levels))
-    lines.append(_pos_line("LLY",    lly_px))
-    lines.append(_pos_line("WMT",    wmt_px))
-    lines.append(_pos_line("JNJ",    jnj_px))
+    lines.append(_pos_line("LLY",    lly_px, lly_levels))
+    lines.append(_pos_line("WMT",    wmt_px, wmt_levels))
+    lines.append(_pos_line("JNJ",    jnj_px, jnj_levels))
     lines.append(_pos_line("CCJ",    ccj_px, ccj_levels))
-    lines.append(_pos_line("VRT",    vrt_px))
-    lines.append(_pos_line("AVGO",   avgo_px))
+    lines.append(_pos_line("VRT",    vrt_px, vrt_levels))
+    lines.append(_pos_line("AVGO",   avgo_px, avgo_levels))
     lines.append("")
 
     # RECESSION TRACKER
