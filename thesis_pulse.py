@@ -1372,14 +1372,14 @@ def main():
     lines.append(f"  {'POSITIONS':<18} {'price':<10} {'vs 200MA':<9} {'vs 52wH':<9} {'sup':<8} {'res':<8} vol")
     lines.append(f"  {'-'*68}")
 
-    def _pos_line(name, px_dict, levels=None):
+    def _pos_line(name, px_dict, levels=None, suppress_vol=False):
         if px_dict is None:
             return f"  {name:<18} {'n/a':<10} {'n/a':<9} {'n/a':<9} {'—':<8} {'—':<8} —"
         price_s = f"${px_dict['price']:.2f}"
         ma_s    = f"{px_dict['vs_ma_200']:+.1f}%" if px_dict.get("vs_ma_200") is not None else "n/a"
         hi_s    = f"{px_dict['dd_52w']:+.1f}%"    if px_dict.get("dd_52w")    is not None else "n/a"
         rv      = px_dict.get("rel_vol")
-        vol_s   = f"{rv:.1f}x" if rv is not None else "—"
+        vol_s   = "—" if suppress_vol else (f"{rv:.1f}x" if rv is not None else "—")
         if levels and any(v is not None for v in levels):
             sup, res, tgt, brk = levels
             sup_s = f"${sup:.0f}" if sup is not None else "—"
@@ -1398,8 +1398,8 @@ def main():
     vrt_levels    = get_tech_levels("VRT");     time.sleep(1)
     avgo_levels   = get_tech_levels("AVGO")
 
-    lines.append(_pos_line("Gold",   gold,   gold_levels))
-    lines.append(_pos_line("Silver", silver, silver_levels))
+    lines.append(_pos_line("Gold",   gold,   gold_levels,   suppress_vol=True))
+    lines.append(_pos_line("Silver", silver, silver_levels, suppress_vol=True))
     lines.append(_pos_line("LLY",    lly_px, lly_levels))
     lines.append(_pos_line("WMT",    wmt_px, wmt_levels))
     lines.append(_pos_line("JNJ",    jnj_px, jnj_levels))
