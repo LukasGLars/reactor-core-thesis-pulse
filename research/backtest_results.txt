@@ -34,3 +34,83 @@ Computing signals...
   Silver T2 ON:    3.5% of all available days
 
 Running IS (2016-04-01 to 2026-03-31)...
+
+Running OOS (2009-01-01 to 2016-03-31)...
+
+==========================================================================
+  IN-SAMPLE  2016-04-01 → 2026-03-31
+  ------------------------------------------------------------------------
+  Signal Statistics (Tactical):
+    Gold ON:        49.7% of days
+    Silver T1 ON:   15.1% of days
+    Silver T2 ON:    9.0% of days
+    Avg cash buf:   25.2% of portfolio
+
+  Metric                          Tactical      Baseline       Delta
+  ------------------------------------------------------------------------
+  CAGR                              23.52%        26.27%      -2.74%
+  Ann Volatility                    16.66%        19.01%      -2.35%
+  Sharpe  (RF = 0%)                  1.923         1.875      +0.048
+  Max Drawdown                     -16.99%       -21.65%      +4.66%
+  Calmar Ratio                       1.384         1.213      +0.171
+  Total Return                     724.82%       927.09%    -202.27%
+  Days simulated                     2,515         2,515
+
+  Year-by-Year  (IS)
+  Year      Tactical    Baseline       Delta
+  ----------------------------------------
+  2016         1.68%       0.70%  +    0.98%
+  2017        14.55%      17.96%     -3.41%
+  2018         7.68%       6.10%  +    1.58%
+  2019        12.11%      14.17%     -2.07%
+  2020        40.32%      38.98%  +    1.33%
+  2021        24.74%      22.88%  +    1.86%
+  2022         2.53%       2.41%  +    0.12%
+  2023        45.50%      48.36%     -2.85%
+  2024        45.60%      50.61%     -5.01%
+  2025        46.05%      65.85%    -19.80%
+  2026         6.31%      10.88%     -4.57%
+
+==========================================================================
+  OUT-OF-SAMPLE  2009-01-01 → 2016-03-31
+  ------------------------------------------------------------------------
+  Signal Statistics (Tactical):
+    Gold ON:        61.6% of days
+    Silver T1 ON:    0.0% of days
+    Silver T2 ON:    0.0% of days
+    Avg cash buf:   29.6% of portfolio
+
+  Metric                          Tactical      Baseline       Delta
+  ------------------------------------------------------------------------
+  CAGR                               8.64%         8.50%      +0.14%
+  Ann Volatility                    12.04%        15.04%      -3.00%
+  Sharpe  (RF = 0%)                  1.058         0.862      +0.196
+  Max Drawdown                     -10.58%       -12.04%      +1.46%
+  Calmar Ratio                       0.816         0.706      +0.110
+  Total Return                      82.05%        80.39%      +1.66%
+  Days simulated                     1,822         1,822
+
+  Year-by-Year  (OOS)
+  Year      Tactical    Baseline       Delta
+  ----------------------------------------
+  2009        14.00%      18.75%     -4.75%
+  2010        12.12%      22.42%    -10.30%
+  2011         1.59%       1.19%  +    0.40%
+  2012        10.66%      11.58%     -0.92%
+  2013         8.47%      -1.53%  +   10.00%
+  2014        11.55%       9.83%  +    1.72%
+  2015         2.04%      -3.28%  +    5.32%
+  2016         3.83%       6.53%     -2.70%
+
+==========================================================================
+  INTERPRETATION NOTES
+  ----------------------------------------------------------------------
+  Sharpe with RF = 0% (consistent with baseline computation).
+  Calmar = CAGR / |Max Drawdown|. Higher = better risk-adjusted.
+  'Avg cash buf' = weighted-avg fraction of portfolio in Spiltan/day.
+  Gold is full-or-nothing (25% or 0%). Silver is incremental (0/5/10%).
+  VRT pre-IPO (2020-02-07) → cash in both portfolios.
+  No transaction costs or spread modelled.
+  Signal lag: 1 business day to avoid look-ahead bias.
+==========================================================================
+
