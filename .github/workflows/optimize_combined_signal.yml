@@ -1,0 +1,35 @@
+name: Combined Signal Optimisation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  optimise:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: claude/portfolio-summary-doc-DT3cm
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests numpy pandas
+
+      - name: Run combined signal optimisation
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API }}
+        run: python research/optimize_combined_signal.py | tee research/combined_signal_optimisation.txt
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/combined_signal_optimisation.txt
+          git commit -m "[optimise] $(date +%Y-%m-%d) combined signal (floor + compressing RY)" || echo "No changes"
+          git push origin claude/portfolio-summary-doc-DT3cm
