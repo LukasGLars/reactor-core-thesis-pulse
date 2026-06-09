@@ -1,0 +1,39 @@
+name: Tactical Deployment Backtest
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/portfolio-summary-doc-DT3cm
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - uses: actions/setup-python@v5
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pandas numpy requests
+
+      - name: Run backtest
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API }}
+        run: python research/tactical_deployment_backtest.py | tee research/backtest_results.txt
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/backtest_results.txt
+          git diff --cached --quiet || git commit -m "[backtest] $(date -u +%Y-%m-%d) tactical deployment results"
+          git push
