@@ -1,0 +1,39 @@
+name: Gold Floor Optimisation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/portfolio-summary-doc-DT3cm
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - uses: actions/setup-python@v5
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pandas numpy requests
+
+      - name: Run floor sweep
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API }}
+        run: python research/optimize_gold_floor.py | tee research/floor_optimisation.txt
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/floor_optimisation.txt
+          git diff --cached --quiet || git commit -m "[optimise] $(date -u +%Y-%m-%d) gold floor sweep"
+          git push
