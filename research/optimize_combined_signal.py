@@ -298,8 +298,9 @@ def main():
         ("oos_sharpe", "OOS Sharpe"),
         ("is_calmar",  "IS Calmar"),
     ]:
-        top5 = df.nlargest(5, metric)[["tag", metric, "is_sharpe", "oos_sharpe",
-                                        "is_cagr", "is_maxdd", "oos_cagr"]]
+        show_cols = ["tag", metric, "is_sharpe", "oos_sharpe", "is_cagr", "is_maxdd", "oos_cagr"]
+        show_cols = list(dict.fromkeys(show_cols))  # drop duplicate when metric is one of the base cols
+        top5 = df.nlargest(5, metric)[show_cols]
         print(f"\n  Top 5 by {label}:")
         print(f"  {'Config':<35}  {metric:>8}  {'ISSh':>6}  {'OOSSh':>6}  "
               f"{'ISCAGR':>8}  {'ISMaxDD':>8}  {'OOScagr':>8}")
