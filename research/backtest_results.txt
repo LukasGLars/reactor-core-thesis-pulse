@@ -12,105 +12,25 @@ Fetching DFII10 (FRED)...
   2003-01-02 to 2026-06-05  (5861 obs)
 Fetching Yahoo Finance prices...
   Gold futures (GC=F)...
-    2000-09-01 to 2026-06-09  (265 days)
+    2000-08-30 to 2026-06-09  (6,467 days)
   Silver futures (SI=F)...
-    2000-09-01 to 2026-06-09  (265 days)
+    2000-08-30 to 2026-06-09  (6,469 days)
   Eli Lilly (LLY)...
-    1984-12-01 to 2026-06-09  (168 days)
+    2000-01-03 to 2026-06-09  (6,648 days)
   Walmart (WMT)...
-    1972-08-01 to 2026-06-09  (217 days)
+    2000-01-03 to 2026-06-09  (6,648 days)
   J&J (JNJ)...
-    1985-01-01 to 2026-06-09  (167 days)
+    2000-01-03 to 2026-06-09  (6,648 days)
   Cameco (CCJ)...
-    1996-04-01 to 2026-06-09  (364 days)
+    2000-01-03 to 2026-06-09  (6,648 days)
   Vertiv (VRT)...
-    2018-07-30 to 2026-06-09  (412 days)
+    2018-08-02 to 2026-06-09  (1,973 days)
   Broadcom (AVGO)...
-    2009-09-01 to 2026-06-09  (203 days)
+    2009-08-06 to 2026-06-09  (4,236 days)
 
 Computing signals...
   Gold signal ON:  52.4% of all available days
-  Silver T1 ON:    11.4% of all available days
-  Silver T2 ON:    8.0% of all available days
+  Silver T1 ON:    5.9% of all available days
+  Silver T2 ON:    3.5% of all available days
 
 Running IS (2016-04-01 to 2026-03-31)...
-
-Running OOS (2009-01-01 to 2016-03-31)...
-
-==========================================================================
-  IN-SAMPLE  2016-04-01 → 2026-03-31
-  ------------------------------------------------------------------------
-  Signal Statistics (Tactical):
-    Gold ON:        52.0% of days
-    Silver T1 ON:   36.2% of days
-    Silver T2 ON:   23.5% of days
-    Avg cash buf:   21.5% of portfolio
-
-  Metric                          Tactical      Baseline       Delta
-  ------------------------------------------------------------------------
-  CAGR                             184.85%       213.47%     -28.62%
-  Ann Volatility                    24.88%        28.03%      -3.14%
-  Sharpe  (RF = 0%)                  4.336         4.222      +0.115
-  Max Drawdown                     -12.23%       -15.78%      +3.55%
-  Calmar Ratio                      15.112        13.526      +1.586
-  Total Return                     718.17%       891.60%    -173.43%
-  Days simulated                       506           506
-
-  Year-by-Year  (IS)
-  Year      Tactical    Baseline       Delta
-  ----------------------------------------
-  2016         0.01%      -3.31%  +    3.32%
-  2017        10.16%      15.71%     -5.55%
-  2018         8.98%       7.60%  +    1.37%
-  2019         7.74%       8.83%     -1.09%
-  2020        38.70%      44.29%     -5.59%
-  2021        14.55%      16.33%     -1.78%
-  2022         1.45%       2.67%     -1.23%
-  2023        58.32%      60.74%     -2.42%
-  2024        53.68%      53.43%  +    0.25%
-  2025        47.78%      58.04%    -10.26%
-  2026         9.33%      12.87%     -3.54%
-
-==========================================================================
-  OUT-OF-SAMPLE  2009-01-01 → 2016-03-31
-  ------------------------------------------------------------------------
-  Signal Statistics (Tactical):
-    Gold ON:        66.3% of days
-    Silver T1 ON:    0.0% of days
-    Silver T2 ON:    0.0% of days
-    Avg cash buf:   28.4% of portfolio
-
-  Metric                          Tactical      Baseline       Delta
-  ------------------------------------------------------------------------
-  CAGR                             450.18%       501.43%     -51.25%
-  Ann Volatility                    32.13%        46.41%     -14.28%
-  Sharpe  (RF = 0%)                  5.482         4.108      +1.374
-  Max Drawdown                      -6.24%       -10.09%      +3.85%
-  Calmar Ratio                      72.199        49.714     +22.485
-  Total Return                      78.94%        84.46%      -5.52%
-  Days simulated                        86            86
-
-  Year-by-Year  (OOS)
-  Year      Tactical    Baseline       Delta
-  ----------------------------------------
-  2009        16.55%      21.08%     -4.54%
-  2010        14.00%      23.09%     -9.09%
-  2011        -0.12%       0.54%     -0.66%
-  2012        13.43%      14.82%     -1.39%
-  2013         7.33%      -0.68%  +    8.02%
-  2014         9.29%       5.95%  +    3.34%
-  2015        -2.22%      -4.08%  +    1.86%
-  2016         4.86%       7.48%     -2.62%
-
-==========================================================================
-  INTERPRETATION NOTES
-  ----------------------------------------------------------------------
-  Sharpe with RF = 0% (consistent with baseline computation).
-  Calmar = CAGR / |Max Drawdown|. Higher = better risk-adjusted.
-  'Avg cash buf' = weighted-avg fraction of portfolio in Spiltan/day.
-  Gold is full-or-nothing (25% or 0%). Silver is incremental (0/5/10%).
-  VRT pre-IPO (2020-02-07) → cash in both portfolios.
-  No transaction costs or spread modelled.
-  Signal lag: 1 business day to avoid look-ahead bias.
-==========================================================================
-
