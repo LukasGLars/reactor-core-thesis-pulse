@@ -106,12 +106,21 @@ def fetch_fred(series_id: str) -> pd.Series | None:
 
 
 def fetch_yahoo(symbol: str) -> pd.Series | None:
-    """Full daily close history from Yahoo Finance v8. Returns pd.Series."""
+    """Full daily close history from Yahoo Finance v8. Returns pd.Series.
+
+    Uses period1/period2 timestamps instead of range=max — the range=max
+    parameter silently returns monthly bars for long histories; explicit
+    timestamps force daily resolution.
+    """
+    import datetime
+    period1 = int(datetime.datetime(2000, 1, 1).timestamp())
+    period2 = int(datetime.datetime.now().timestamp())
     enc = symbol.replace("=", "%3D")
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{enc}?interval=1d&range=max"
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{enc}"
+           f"?interval=1d&period1={period1}&period2={period2}")
     for attempt in range(4):
         try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
             r.raise_for_status()
             res    = r.json()["chart"]["result"][0]
             ts     = pd.to_datetime(res["timestamp"], unit="s").normalize()
@@ -214,12 +223,18 @@ def simulate(
 
 # ── Performance metrics ───────────────────────────────────────
 def metrics(nav: pd.Series, rets: pd.Series, label: str = "") -> dict:
-    n     = len(nav)
-    years = n / 252
+    # Use calendar days for annualization — robust regardless of data frequency
+    cal_days = (nav.index[-1] - nav.index[0]).days
+    years    = max(cal_days / 365.25, 1e-6)
+
+    # Infer periods per year from median gap between observations
+    gaps      = pd.Series(nav.index).diff().dt.days.dropna()
+    med_gap   = gaps.median()
+    periods_per_year = 365.25 / med_gap if med_gap > 0 else 252
 
     cagr    = nav.iloc[-1] ** (1.0 / years) - 1
-    ann_ret = rets.mean() * 252
-    ann_vol = rets.std()  * np.sqrt(252)
+    ann_ret = rets.mean() * periods_per_year
+    ann_vol = rets.std()  * np.sqrt(periods_per_year)
     sharpe  = ann_ret / ann_vol if ann_vol > 0 else np.nan
 
     peak   = nav.expanding().max()
