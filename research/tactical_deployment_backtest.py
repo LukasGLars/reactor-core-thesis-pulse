@@ -244,7 +244,7 @@ def metrics(nav: pd.Series, rets: pd.Series, label: str = "") -> dict:
 
     return {
         "label":        label,
-        "n_days":       n,
+        "n_days":       len(nav),
         "total_return": nav.iloc[-1] - 1.0,
         "cagr":         cagr,
         "ann_vol":      ann_vol,
