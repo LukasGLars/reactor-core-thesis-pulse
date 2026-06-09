@@ -1,0 +1,106 @@
+====================================================================================
+  GOLD FLOOR OPTIMISATION  |  2026-06-09
+  Sweeping floor: ['0.0%', '2.5%', '5.0%', '7.5%', '10.0%', '12.5%', '15.0%', '17.5%', '20.0%', '22.5%', '25.0%']
+====================================================================================
+
+Fetching DFII10...
+  2003-01-02 → 2026-06-05
+Fetching prices...
+  Gold (GC=F)...
+  Silver (SI=F)...
+  LLY (LLY)...
+  WMT (WMT)...
+  JNJ (JNJ)...
+  CCJ (CCJ)...
+  VRT (VRT)...
+  AVGO (AVGO)...
+
+Sweeping 11 floor values...
+  floor=0.0%  IS Sharpe=1.923  OOS Sharpe=1.058  IS CAGR=23.52%  IS MaxDD=-16.99%
+  floor=2.5%  IS Sharpe=1.933  OOS Sharpe=1.049  IS CAGR=23.71%  IS MaxDD=-17.09%
+  floor=5.0%  IS Sharpe=1.942  OOS Sharpe=1.040  IS CAGR=23.89%  IS MaxDD=-17.20%
+  floor=7.5%  IS Sharpe=1.950  OOS Sharpe=1.030  IS CAGR=24.07%  IS MaxDD=-17.32%
+  floor=10.0%  IS Sharpe=1.957  OOS Sharpe=1.019  IS CAGR=24.25%  IS MaxDD=-17.43%
+  floor=12.5%  IS Sharpe=1.963  OOS Sharpe=1.008  IS CAGR=24.43%  IS MaxDD=-17.54%
+  floor=15.0%  IS Sharpe=1.968  OOS Sharpe=0.996  IS CAGR=24.61%  IS MaxDD=-17.65%
+  floor=17.5%  IS Sharpe=1.973  OOS Sharpe=0.984  IS CAGR=24.79%  IS MaxDD=-17.76%
+  floor=20.0%  IS Sharpe=1.977  OOS Sharpe=0.971  IS CAGR=24.97%  IS MaxDD=-17.87%
+  floor=22.5%  IS Sharpe=1.979  OOS Sharpe=0.958  IS CAGR=25.15%  IS MaxDD=-17.99%
+  floor=25.0%  IS Sharpe=1.981  OOS Sharpe=0.945  IS CAGR=25.32%  IS MaxDD=-18.10%
+
+====================================================================================
+  FULL SWEEP RESULTS  (sorted by floor value)
+  --------------------------------------------------------------------------------
+  Floor          IS Sharpe   IS Calmar    IS CAGR   IS MaxDD   OOS Sharpe   OOS Calmar   Combined
+  --------------------------------------------------------------------------------
+  orig-tact          1.923       1.384     23.52%    -16.99%        1.058        0.816      2.981
+  floor 2.5%         1.933       1.387     23.71%    -17.09%        1.049        0.810      2.982
+  floor 5.0%         1.942       1.389     23.89%    -17.20%        1.040        0.803      2.982
+  floor 7.5%         1.950       1.390     24.07%    -17.32%        1.030        0.797      2.980
+  floor 10.0%        1.957       1.392     24.25%    -17.43%        1.019        0.790      2.976
+  floor 12.5%        1.963       1.393     24.43%    -17.54%        1.008        0.783      2.971
+  floor 15.0%        1.968       1.394     24.61%    -17.65%        0.996        0.776      2.965
+  floor 17.5%        1.973       1.396     24.79%    -17.76%        0.984        0.769      2.957
+  floor 20.0%        1.977       1.397     24.97%    -17.87%        0.971        0.762      2.948
+  floor 22.5%        1.979       1.398     25.15%    -17.99%        0.958        0.755      2.938
+  baseline           1.981       1.399     25.32%    -18.10%        0.945        0.748      2.926
+
+====================================================================================
+  RANKINGS
+  --------------------------------------------------------------------------------
+
+  Best by IS Sharpe:
+    Floor = 25.0%  (baseline)
+    IS   → Sharpe 1.981  Calmar 1.399  CAGR 25.32%  MaxDD -18.10%
+    OOS  → Sharpe 0.945  Calmar 0.748  CAGR 7.92%  MaxDD -10.58%
+    Top 3: 25.0% (1.981)  22.5% (1.979)  20.0% (1.977)  
+
+  Best by IS Calmar:
+    Floor = 25.0%  (baseline)
+    IS   → Sharpe 1.981  Calmar 1.399  CAGR 25.32%  MaxDD -18.10%
+    OOS  → Sharpe 0.945  Calmar 0.748  CAGR 7.92%  MaxDD -10.58%
+    Top 3: 25.0% (1.399)  22.5% (1.398)  20.0% (1.397)  
+
+  Best by Combined IS+OOS Sharpe:
+    Floor = 2.5%  (floor 2.5%)
+    IS   → Sharpe 1.933  Calmar 1.387  CAGR 23.71%  MaxDD -17.09%
+    OOS  → Sharpe 1.049  Calmar 0.810  CAGR 8.57%  MaxDD -10.58%
+    Top 3: 2.5% (2.982)  5.0% (2.982)  0.0% (2.981)  
+
+====================================================================================
+  IS SHARPE vs FLOOR  (ASCII curve)
+  ------------------------------------------------------------
+  1.981 │                               ●
+  1.973 │                         ●  ●   
+  1.965 │                   ●  ●         
+  1.957 │             ●  ●               
+  1.948 │          ●                     
+  1.940 │       ●                        
+  1.932 │    ●                           
+  1.923 │ ●                              
+         └─────────────────────────────────
+           0%   2%   5%   8%  10%  12%  15%  18%  20%  22%  25%
+          floor →
+
+  IS MAX DRAWDOWN vs FLOOR  (smaller magnitude = better)
+  ------------------------------------------------------------
+  -16.99% │ ●                              
+  -17.15% │    ●                           
+  -17.31% │       ●                        
+  -17.47% │          ●  ●                  
+  -17.62% │                ●               
+  -17.78% │                   ●  ●         
+  -17.94% │                         ●      
+  -18.10% │                            ●  ●
+          └─────────────────────────────────
+           0%   2%   5%   8%  10%  12%  15%  18%  20%  22%  25%
+          floor →  (top = least drawdown / best)
+
+====================================================================================
+  NOTES
+  ------------------------------------------------------------
+  floor=0.0%  →  original tactical (0% or 25% gold)
+  floor=25.0% →  equivalent to fully deployed baseline
+  silver signal unchanged across all floor values
+  combined = IS_Sharpe + OOS_Sharpe (equal-weight stability metric)
+====================================================================================
