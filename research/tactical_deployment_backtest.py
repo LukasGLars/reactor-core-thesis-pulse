@@ -4,16 +4,21 @@ research/tactical_deployment_backtest.py
 Hypothesis: Signal-based tactical deployment with 3%/yr yielding cash buffer
 vs. fully-deployed V3 baseline.
 
+THREE MODES compared:
+  tactical        — gold 0–25%  (full-or-nothing on signal)
+  tactical_floored— gold 12.5–25% (half always deployed, half signal-gated)
+  baseline        — gold always 25%
+
 SIGNALS
-  Gold:   Deploy 25% when DFII10 < 90d SMA (CvsTC negative).
-          Signal OFF → 0% gold, 25% Spiltan (3%/yr). Full-or-nothing.
+  Gold:   Deploy when DFII10 < 90d SMA (CvsTC negative).
+          Tactical: 0% or 25%.  Floored: 12.5% or 25%.
   Silver: T1 (deploy 5%):  GSR > 83.36 AND fallen >= 5% from 60d rolling peak.
           T2 (deploy +5%): GSR > 86.45 AND fallen >= 5% from 60d rolling peak.
           Signal OFF → uninvested silver in Spiltan.
 
 STATIC (always fully deployed at target weight):
   LLY 15%  WMT 15%  JNJ 6%  CCJ 10%  VRT 10%  AVGO 9%
-  VRT pre-IPO (< 2020-02-07): treated as Spiltan in BOTH portfolios.
+  VRT pre-IPO (< 2020-02-07): treated as Spiltan in ALL modes.
 
 CASH YIELD: 3%/yr applied daily to uninvested gold + silver + pre-IPO VRT only.
 
@@ -53,9 +58,10 @@ GSR_PEAK_WINDOW   = 60     # rolling peak lookback (trading days)
 GSR_FALL_PCT      = 0.05   # minimum fall from peak to qualify
 
 # ── Weight config ─────────────────────────────────────────────
-GOLD_W  = 0.25
-SILVER_W = 0.10
-STATIC_W = {
+GOLD_W     = 0.25
+GOLD_FLOOR = 0.125   # floored mode: minimum gold regardless of signal
+SILVER_W   = 0.10
+STATIC_W   = {
     "LLY":  0.15,
     "WMT":  0.15,
     "JNJ":  0.06,
@@ -165,7 +171,7 @@ def simulate(
     gs:      pd.Series,
     t1:      pd.Series,
     t2:      pd.Series,
-    mode:    str,   # "tactical" | "baseline"
+    mode:    str,   # "tactical" | "tactical_floored" | "baseline"
 ) -> tuple:
     """
     Vectorized daily NAV simulation starting at 1.0.
@@ -179,32 +185,33 @@ def simulate(
             return ret[sym].fillna(0.0)
         return pd.Series(0.0, index=idx)
 
-    # ── Signal weights ─────────────────────────────────────────
     # Forward-fill FRED/daily signals onto trading-day index
     gs_ = gs.reindex(idx, method="ffill").fillna(0.0)
     t1_ = t1.reindex(idx, method="ffill").fillna(0.0)
     t2_ = t2.reindex(idx, method="ffill").fillna(0.0)
 
     if mode == "tactical":
-        gold_w   = GOLD_W * gs_
-        silver_w = 0.05 * t1_ + 0.05 * t2_   # T1 adds 5%, T2 adds another 5%
-    else:
+        gold_w   = GOLD_W * gs_                      # 0% or 25%
+        silver_w = 0.05 * t1_ + 0.05 * t2_
+    elif mode == "tactical_floored":
+        gold_w   = GOLD_FLOOR + (GOLD_W - GOLD_FLOOR) * gs_  # 12.5% or 25%
+        silver_w = 0.05 * t1_ + 0.05 * t2_
+    else:  # baseline
         gold_w   = pd.Series(GOLD_W,   index=idx, dtype=float)
         silver_w = pd.Series(SILVER_W, index=idx, dtype=float)
 
-    # VRT: no price before IPO → treat as Spiltan in both modes
+    # VRT: no price before IPO → treat as Spiltan in all modes
     vrt_w = pd.Series(
         np.where(idx >= VRT_IPO, STATIC_W["VRT"], 0.0),
         index=idx, dtype=float,
     )
 
     # Cash = uninvested tactical gold + silver + pre-IPO VRT
-    if mode == "tactical":
+    if mode in ("tactical", "tactical_floored"):
         cash_w = (GOLD_W - gold_w) + (SILVER_W - silver_w) + (STATIC_W["VRT"] - vrt_w)
     else:
         cash_w = STATIC_W["VRT"] - vrt_w   # baseline: only pre-IPO VRT in cash
 
-    # ── Portfolio return each day ───────────────────────────────
     port_ret = (
         gold_w             * ar("GC=F")  +
         silver_w           * ar("SI=F")  +
@@ -223,11 +230,9 @@ def simulate(
 
 # ── Performance metrics ───────────────────────────────────────
 def metrics(nav: pd.Series, rets: pd.Series, label: str = "") -> dict:
-    # Use calendar days for annualization — robust regardless of data frequency
     cal_days = (nav.index[-1] - nav.index[0]).days
     years    = max(cal_days / 365.25, 1e-6)
 
-    # Infer periods per year from median gap between observations
     gaps      = pd.Series(nav.index).diff().dt.days.dropna()
     med_gap   = gaps.median()
     periods_per_year = 365.25 / med_gap if med_gap > 0 else 252
@@ -265,88 +270,116 @@ def signal_stats(
     t2_ = t2.reindex(idx, method="ffill").fillna(0)
 
     silver_deployed = 0.05 * t1_ + 0.05 * t2_
-    vrt_pre_ipo     = (idx < VRT_IPO).mean()
 
-    gold_cash   = GOLD_W   * (1 - gs_)
+    # Original: gold goes to 0 when signal OFF
+    gold_cash_orig   = GOLD_W * (1 - gs_)
+    # Floored: only the upper half (12.5%) goes to cash
+    gold_cash_floor  = (GOLD_W - GOLD_FLOOR) * (1 - gs_)
+
     silver_cash = SILVER_W - silver_deployed
     vrt_cash    = pd.Series(np.where(idx < VRT_IPO, STATIC_W["VRT"], 0.0), index=idx)
-    avg_cash    = (gold_cash + silver_cash + vrt_cash).mean()
 
     return {
-        "gold_on_pct":      gs_.mean()   * 100,
-        "silver_t1_on_pct": (t1_ + 0).mean() * 100,
-        "silver_t2_on_pct": t2_.mean()  * 100,
-        "avg_cash_pct":     avg_cash     * 100,
+        "gold_on_pct":        gs_.mean()   * 100,
+        "silver_t1_on_pct":   t1_.mean()   * 100,
+        "silver_t2_on_pct":   t2_.mean()   * 100,
+        "avg_cash_orig_pct":  (gold_cash_orig  + silver_cash + vrt_cash).mean() * 100,
+        "avg_cash_floor_pct": (gold_cash_floor + silver_cash + vrt_cash).mean() * 100,
     }
 
 
 def annual_breakdown(
-    nav_tact: pd.Series,
-    nav_base: pd.Series,
+    nav_orig:    pd.Series,
+    nav_floored: pd.Series,
+    nav_base:    pd.Series,
 ) -> pd.DataFrame:
-    df = pd.concat([nav_tact.rename("tact"), nav_base.rename("base")], axis=1)
-    df["tact_ret"] = df["tact"].pct_change()
-    df["base_ret"] = df["base"].pct_change()
+    df = pd.concat([
+        nav_orig.rename("orig"),
+        nav_floored.rename("floor"),
+        nav_base.rename("base"),
+    ], axis=1)
+    df["orig_ret"]  = df["orig"].pct_change()
+    df["floor_ret"] = df["floor"].pct_change()
+    df["base_ret"]  = df["base"].pct_change()
 
     rows = []
     for year, grp in df.groupby(df.index.year):
-        t_ret = (1 + grp["tact_ret"].fillna(0)).prod() - 1
-        b_ret = (1 + grp["base_ret"].fillna(0)).prod() - 1
-        rows.append({"year": year, "tactical": t_ret, "baseline": b_ret, "delta": t_ret - b_ret})
+        o_ret = (1 + grp["orig_ret"].fillna(0)).prod()  - 1
+        f_ret = (1 + grp["floor_ret"].fillna(0)).prod() - 1
+        b_ret = (1 + grp["base_ret"].fillna(0)).prod()  - 1
+        rows.append({
+            "year":        year,
+            "orig":        o_ret,
+            "floored":     f_ret,
+            "baseline":    b_ret,
+            "delta_orig":  o_ret - b_ret,
+            "delta_floor": f_ret - b_ret,
+        })
     return pd.DataFrame(rows).set_index("year")
 
 
 # ── Output formatting ─────────────────────────────────────────
-def print_comparison(title: str, tact: dict, base: dict, ss: dict) -> None:
-    W = 74
+def print_comparison(
+    title:    str,
+    m_orig:   dict,
+    m_floor:  dict,
+    m_base:   dict,
+    ss:       dict,
+) -> None:
+    W = 80
     print()
     print("=" * W)
     print(f"  {title}")
     print(f"  {'-' * (W-2)}")
-    print(f"  {'Signal Statistics (Tactical):'}")
-    print(f"    Gold ON:       {ss['gold_on_pct']:5.1f}% of days")
-    print(f"    Silver T1 ON:  {ss['silver_t1_on_pct']:5.1f}% of days")
-    print(f"    Silver T2 ON:  {ss['silver_t2_on_pct']:5.1f}% of days")
-    print(f"    Avg cash buf:  {ss['avg_cash_pct']:5.1f}% of portfolio")
+    print(f"  Signal Statistics:")
+    print(f"    Gold ON:           {ss['gold_on_pct']:5.1f}% of days")
+    print(f"    Silver T1 ON:      {ss['silver_t1_on_pct']:5.1f}% of days")
+    print(f"    Silver T2 ON:      {ss['silver_t2_on_pct']:5.1f}% of days")
+    print(f"    Avg cash (orig):   {ss['avg_cash_orig_pct']:5.1f}% of portfolio")
+    print(f"    Avg cash (floor):  {ss['avg_cash_floor_pct']:5.1f}% of portfolio")
     print()
-    print(f"  {'Metric':<26}  {'Tactical':>12}  {'Baseline':>12}  {'Delta':>10}")
+    print(f"  {'Metric':<22}  {'Orig (0–25%)':>13}  {'Floor (12.5–25%)':>17}  {'Baseline':>10}  {'ΔOrig':>7}  {'ΔFloor':>7}")
     print(f"  {'-' * (W-2)}")
 
     def row(lbl, key, fmt):
-        t = tact.get(key)
-        b = base.get(key)
-        d = t - b if (t is not None and b is not None) else None
-        def _f(v): return f"{v:{fmt}}" if v is not None else "  n/a"
-        sign = "+" if (d is not None and d > 0) else ""
-        d_s  = f"{sign}{d:{fmt}}" if d is not None else "  n/a"
-        print(f"  {lbl:<26}  {_f(t):>12}  {_f(b):>12}  {d_s:>10}")
+        o = m_orig.get(key)
+        f = m_floor.get(key)
+        b = m_base.get(key)
+        do = (o - b) if (o is not None and b is not None) else None
+        df = (f - b) if (f is not None and b is not None) else None
+        def _f(v): return f"{v:{fmt}}" if v is not None else "n/a"
+        def _d(v): return (("+" if v > 0 else "") + f"{v:{fmt}}") if v is not None else "n/a"
+        print(f"  {lbl:<22}  {_f(o):>13}  {_f(f):>17}  {_f(b):>10}  {_d(do):>7}  {_d(df):>7}")
 
     row("CAGR",              "cagr",         ".2%")
     row("Ann Volatility",    "ann_vol",       ".2%")
-    row("Sharpe  (RF = 0%)", "sharpe",        ".3f")
+    row("Sharpe  (RF=0%)",   "sharpe",        ".3f")
     row("Max Drawdown",      "max_dd",        ".2%")
     row("Calmar Ratio",      "calmar",        ".3f")
     row("Total Return",      "total_return",  ".2%")
-    print(f"  {'Days simulated':<26}  {tact['n_days']:>12,}  {base['n_days']:>12,}")
+    print(f"  {'Days simulated':<22}  {m_orig['n_days']:>13,}  {m_floor['n_days']:>17,}  {m_base['n_days']:>10,}")
 
 
 def print_annual(ann: pd.DataFrame, title: str) -> None:
     print()
     print(f"  Year-by-Year  ({title})")
-    print(f"  {'Year':<6}  {'Tactical':>10}  {'Baseline':>10}  {'Delta':>10}")
-    print(f"  {'-' * 40}")
-    for yr, row in ann.iterrows():
-        sign = "+" if row["delta"] > 0 else ""
-        print(f"  {yr:<6}  {row['tactical']:>10.2%}  {row['baseline']:>10.2%}  {sign}{row['delta']:>9.2%}")
+    print(f"  {'Year':<6}  {'Orig':>8}  {'Floored':>9}  {'Baseline':>10}  {'ΔOrig':>8}  {'ΔFloor':>8}")
+    print(f"  {'-' * 56}")
+    for yr, r in ann.iterrows():
+        do = ("+" if r["delta_orig"]  > 0 else "") + f"{r['delta_orig']:7.2%}"
+        df = ("+" if r["delta_floor"] > 0 else "") + f"{r['delta_floor']:7.2%}"
+        print(f"  {yr:<6}  {r['orig']:>8.2%}  {r['floored']:>9.2%}  {r['baseline']:>10.2%}  {do:>8}  {df:>8}")
 
 
 # ── Main ──────────────────────────────────────────────────────
 def main():
-    print("=" * 74)
+    print("=" * 80)
     print(f"  TACTICAL DEPLOYMENT BACKTEST  |  {date.today().isoformat()}")
-    print("=" * 74)
+    print("=" * 80)
     print()
     print(f"  Gold signal:    DFII10 < {DFII10_SMA_WINDOW}d SMA  (CvsTC negative)")
+    print(f"  Orig tactical:  0% gold when OFF,   25% when ON")
+    print(f"  Floored:        {GOLD_FLOOR:.1%} gold when OFF, {GOLD_W:.1%} when ON  (half-floor)")
     print(f"  Silver T1:      GSR > {GSR_T1} AND >= {GSR_FALL_PCT:.0%} below {GSR_PEAK_WINDOW}d peak")
     print(f"  Silver T2:      GSR > {GSR_T2} AND >= {GSR_FALL_PCT:.0%} below {GSR_PEAK_WINDOW}d peak")
     print(f"  Cash yield:     {CASH_DAILY*365:.1%}/yr (Spiltan) on uninvested gold + silver")
@@ -388,27 +421,26 @@ def main():
     gs = compute_gold_signal(dfii10)
     t1, t2 = compute_silver_signals(prices_raw["GC=F"], prices_raw["SI=F"])
 
-    gold_on_pct = gs.mean() * 100
-    t1_on_pct   = t1.mean() * 100
-    t2_on_pct   = t2.mean() * 100
-    print(f"  Gold signal ON:  {gold_on_pct:.1f}% of all available days")
-    print(f"  Silver T1 ON:    {t1_on_pct:.1f}% of all available days")
-    print(f"  Silver T2 ON:    {t2_on_pct:.1f}% of all available days")
+    print(f"  Gold signal ON:  {gs.mean()*100:.1f}% of all available days")
+    print(f"  Silver T1 ON:    {t1.mean()*100:.1f}% of all available days")
+    print(f"  Silver T2 ON:    {t2.mean()*100:.1f}% of all available days")
 
     def run_period(start: str, end: str, label: str) -> dict:
         print(f"\nRunning {label} ({start} to {end})...")
         prices_df = pd.DataFrame(prices_raw).sort_index().loc[start:end].ffill()
 
-        nav_t, ret_t = simulate(prices_df, gs, t1, t2, mode="tactical")
+        nav_o, ret_o = simulate(prices_df, gs, t1, t2, mode="tactical")
+        nav_f, ret_f = simulate(prices_df, gs, t1, t2, mode="tactical_floored")
         nav_b, ret_b = simulate(prices_df, gs, t1, t2, mode="baseline")
 
-        idx = ret_t.index   # one row shorter than prices_df due to pct_change
+        idx = ret_o.index
         ss  = signal_stats(idx, gs, t1, t2)
-        m_t = metrics(nav_t, ret_t, f"Tactical {label}")
+        m_o = metrics(nav_o, ret_o, f"Tactical-Orig {label}")
+        m_f = metrics(nav_f, ret_f, f"Tactical-Floor {label}")
         m_b = metrics(nav_b, ret_b, f"Baseline {label}")
-        ann = annual_breakdown(nav_t, nav_b)
+        ann = annual_breakdown(nav_o, nav_f, nav_b)
 
-        return {"tact": m_t, "base": m_b, "ss": ss, "ann": ann, "label": label}
+        return {"orig": m_o, "floor": m_f, "base": m_b, "ss": ss, "ann": ann, "label": label}
 
     is_res  = run_period(IS_START,  IS_END,  "IS")
     oos_res = run_period(OOS_START, OOS_END, "OOS")
@@ -416,28 +448,28 @@ def main():
     # ── Print results ─────────────────────────────────────────
     print_comparison(
         f"IN-SAMPLE  {IS_START} → {IS_END}",
-        is_res["tact"], is_res["base"], is_res["ss"],
+        is_res["orig"], is_res["floor"], is_res["base"], is_res["ss"],
     )
     print_annual(is_res["ann"], "IS")
 
     print_comparison(
         f"OUT-OF-SAMPLE  {OOS_START} → {OOS_END}",
-        oos_res["tact"], oos_res["base"], oos_res["ss"],
+        oos_res["orig"], oos_res["floor"], oos_res["base"], oos_res["ss"],
     )
     print_annual(oos_res["ann"], "OOS")
 
     print()
-    print("=" * 74)
+    print("=" * 80)
     print("  INTERPRETATION NOTES")
-    print(f"  {'-' * 70}")
+    print(f"  {'-' * 76}")
     print("  Sharpe with RF = 0% (consistent with baseline computation).")
     print("  Calmar = CAGR / |Max Drawdown|. Higher = better risk-adjusted.")
-    print("  'Avg cash buf' = weighted-avg fraction of portfolio in Spiltan/day.")
-    print("  Gold is full-or-nothing (25% or 0%). Silver is incremental (0/5/10%).")
-    print("  VRT pre-IPO (2020-02-07) → cash in both portfolios.")
+    print("  Orig: gold 0% (OFF) or 25% (ON).  Floor: gold 12.5% (OFF) or 25% (ON).")
+    print("  Silver signal unchanged across all modes (0/5/10%).")
+    print("  VRT pre-IPO (2020-02-07) → cash in all modes.")
     print("  No transaction costs or spread modelled.")
     print("  Signal lag: 1 business day to avoid look-ahead bias.")
-    print("=" * 74)
+    print("=" * 80)
     print()
 
 
