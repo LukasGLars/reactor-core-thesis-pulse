@@ -1355,18 +1355,22 @@ def main():
             lines.append(f"          {extra}")
         lines.append("")
 
-    _ry_delta_10d = ry_val - ry_10d if ry_val is not None and ry_10d is not None else None
-    _ry_arrow     = "▼" if _ry_delta_10d is not None and _ry_delta_10d < 0 else "▲"
+    # ▲ = yields expanding (rising), ▼ = compressing (falling)
+    _ry_delta_10d  = ry_val - ry_10d  if ry_val is not None and ry_10d  is not None else None
+    _ry_arrow_10d  = "▲" if _ry_delta_10d is not None and _ry_delta_10d >= 0 else "▼"
+    # ▲ = current yield above 90d SMA (expanding above trend), ▼ = below trend (compressing)
+    _ry_delta_sma  = ry_val - ry_sma90 if ry_val is not None and ry_sma90 is not None else None
+    _ry_arrow_sma  = "▲" if _ry_delta_sma is not None and _ry_delta_sma >= 0 else "▼"
     lines.append(f"  {'RY':<8}{ry_val:.2f}%" if ry_val is not None else "  RY      n/a")
     if ry_10d is not None:
         lines.append(f"  {'':8}10d {ry_10d:.2f}%")
     if _ry_delta_10d is not None:
-        lines.append(f"  {'':8}Δ10d {_ry_arrow}{_ry_delta_10d:.2f}%")
+        lines.append(f"  {'':8}Δ10d {_ry_arrow_10d} {_ry_delta_10d:.2f}%")
     if ry_sma90 is not None:
-        lines.append(f"  {'':8}TC {ry_sma90:.2f}% (90d SMA)")
-    if ry_cvstc is not None:
-        _cvstc_delta_s = f" ({prev_ry_cvstc:+.2f}%)" if prev_ry_cvstc is not None else ""
-        lines.append(f"  {'':8}90d SMA {ry_cvstc:+.2f}%{_cvstc_delta_s}")
+        # less-indented to visually separate 90d context from 10d window
+        lines.append(f"  {'':5}90d SMA  {ry_sma90:.2f}%")
+    if _ry_delta_sma is not None:
+        lines.append(f"  {'':7}Δ 90d SMA {_ry_arrow_sma} {_ry_delta_sma:+.2f}%")
     lines.append("")
     _thesis_block(
         "DXY",
