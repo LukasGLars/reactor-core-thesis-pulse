@@ -1365,12 +1365,11 @@ def main():
     if ry_10d is not None:
         lines.append(f"  {'':8}10d {ry_10d:.2f}%")
     if _ry_delta_10d is not None:
-        lines.append(f"  {'':8}Δ10d {_ry_arrow_10d} {_ry_delta_10d:.2f}%")
+        lines.append(f"  {'':8}Δ10d {_ry_arrow_10d}{_ry_delta_10d:.2f}%")
     if ry_sma90 is not None:
-        # less-indented to visually separate 90d context from 10d window
-        lines.append(f"  {'':5}90d SMA  {ry_sma90:.2f}%")
+        lines.append(f"  {'':8}90d SMA {ry_sma90:.2f}%")
     if _ry_delta_sma is not None:
-        lines.append(f"  {'':7}Δ 90d SMA {_ry_arrow_sma} {_ry_delta_sma:+.2f}%")
+        lines.append(f"  {'':8}Δ 90d SMA {_ry_arrow_sma}{_ry_delta_sma:+.2f}%")
     lines.append("")
     _thesis_block(
         "DXY",
