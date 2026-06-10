@@ -1308,8 +1308,6 @@ def main():
     capex_total      = sum(capex_vals)  if capex_vals  else None
     capex_total_prev = sum(capex_prevs) if capex_prevs else None
 
-    ry_med_3w, ry_prev_med_3w = fred_3w_medians("DFII10")
-
     ry_dist   = int(round(300 - ry_val * 100)) if ry_val is not None else "n/a"
     dxy_price = dxy["price"] if dxy else None
 
@@ -1341,7 +1339,7 @@ def main():
         mid = (med + pmed) / 2
         return (curr - mid) / mid * 100 if mid != 0 else None
 
-    ry_cvstc  = _cvstc(ry_val,    ry_med_3w,          ry_prev_med_3w)
+    ry_cvstc  = (ry_val - ry_sma90) / ry_sma90 * 100 if ry_val is not None and ry_sma90 is not None and ry_sma90 != 0 else None
     dxy_cvstc = _cvstc(dxy_price, dxy["med_3w"] if dxy else None, dxy["prev_med_3w"] if dxy else None)
     gsr_cvstc = _cvstc(gs_ratio,  gsr_med_3w,         gsr_prev_med_3w)
     oil_cvstc = _cvstc(oil_spread, oil_spread_med_3w, oil_spread_prev_med_3w)
@@ -1364,11 +1362,11 @@ def main():
         lines.append(f"  {'':8}10d {ry_10d:.2f}%")
     if _ry_delta_10d is not None:
         lines.append(f"  {'':8}Δ10d {_ry_arrow}{_ry_delta_10d:.2f}%")
-    if ry_med_3w is not None:
-        lines.append(f"  {'':8}TC {ry_med_3w:.2f}% (3wM)")
+    if ry_sma90 is not None:
+        lines.append(f"  {'':8}TC {ry_sma90:.2f}% (90d SMA)")
     if ry_cvstc is not None:
         _cvstc_delta_s = f" ({prev_ry_cvstc:+.2f}%)" if prev_ry_cvstc is not None else ""
-        lines.append(f"  {'':8}CvsTC {ry_cvstc:+.2f}%{_cvstc_delta_s}")
+        lines.append(f"  {'':8}90d SMA {ry_cvstc:+.2f}%{_cvstc_delta_s}")
     lines.append("")
     _thesis_block(
         "DXY",
