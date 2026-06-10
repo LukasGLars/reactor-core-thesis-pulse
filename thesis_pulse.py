@@ -1359,17 +1359,17 @@ def main():
 
     _ry_delta_10d = ry_val - ry_10d if ry_val is not None and ry_10d is not None else None
     _ry_arrow     = "▼" if _ry_delta_10d is not None and _ry_delta_10d < 0 else "▲"
-    _ry_10d_extra = (f"10d {ry_10d:.2f}%  Δ10d {_ry_arrow}{_ry_delta_10d:.2f}%"
-                     if _ry_delta_10d is not None else None)
-    _thesis_block(
-        "RY",
-        f"{ry_val:.2f}%"          if ry_val          is not None else "n/a",
-        f"({ry_prev:.2f})"         if ry_prev         is not None else "",
-        f"{ry_med_3w:.2f}%"        if ry_med_3w       is not None else "n/a",
-        f"{ry_prev_med_3w:.2f}%"   if ry_prev_med_3w  is not None else "n/a",
-        ry_cvstc, prev_ry_cvstc,
-        extra=_ry_10d_extra,
-    )
+    lines.append(f"  {'RY':<8}{ry_val:.2f}%" if ry_val is not None else "  RY      n/a")
+    if ry_10d is not None:
+        lines.append(f"  {'':8}10d {ry_10d:.2f}%")
+    if _ry_delta_10d is not None:
+        lines.append(f"  {'':8}Δ10d {_ry_arrow}{_ry_delta_10d:.2f}%")
+    if ry_med_3w is not None:
+        lines.append(f"  {'':8}TC {ry_med_3w:.2f}% (3wM)")
+    if ry_cvstc is not None:
+        _cvstc_delta_s = f" ({prev_ry_cvstc:+.2f}%)" if prev_ry_cvstc is not None else ""
+        lines.append(f"  {'':8}CvsTC {ry_cvstc:+.2f}%{_cvstc_delta_s}")
+    lines.append("")
     _thesis_block(
         "DXY",
         f"{dxy_price:.2f}"                if dxy_price                      is not None else "n/a",
