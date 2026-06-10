@@ -4,7 +4,7 @@ Reactor Core Thesis Pulse v2.0
 Daily thesis monitoring for 8-position portfolio.
 Runs via GitHub Actions — sends email with raw data + recession tracker.
 """
-import requests, json, os, sys, smtplib, time, csv
+import requests, json, os, sys, smtplib, time, csv, statistics
 from datetime import date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -108,6 +108,29 @@ def fred_recent(series_id, lookback=20):
             print(f"  FRED {series_id} retry {attempt}/5: {e}")
             time.sleep(wait)
     return None, None, None, None
+
+def fred_series_vals(series_id):
+    """Returns (values_list, latest_date) — full history as list of floats."""
+    session = _make_session()
+    for attempt in range(1, 6):
+        try:
+            r = session.get(
+                fred_url(series_id),
+                headers={"User-Agent": "thesis-pulse/1.0"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            obs = r.json().get("observations", [])
+            rows = [(o["date"], float(o["value"])) for o in obs
+                    if o.get("value") not in (".", "")]
+            if not rows:
+                return [], None
+            return [v for _, v in rows], rows[-1][0]
+        except Exception as e:
+            wait = 0.5 * (2 ** (attempt - 1))
+            print(f"  FRED {series_id} retry {attempt}/5: {e}")
+            time.sleep(wait)
+    return [], None
 
 # ── YAHOO FINANCE ──────────────────────────────────────────
 def yahoo_history(symbol):
@@ -1093,7 +1116,14 @@ def main():
     usdsek  = yahoo_history("USDSEK=X")
 
     print("Fetching FRED...")
-    ry_val, ry_prev, ry_4w, ry_date = fred_recent("DFII10", lookback=20)
+    _ry_vals, ry_date  = fred_series_vals("DFII10")
+    ry_val        = _ry_vals[-1]   if len(_ry_vals) >= 1  else None
+    ry_prev       = _ry_vals[-2]   if len(_ry_vals) >= 2  else None
+    ry_4w         = _ry_vals[-20]  if len(_ry_vals) >= 20 else None
+    ry_10d        = _ry_vals[-10]  if len(_ry_vals) >= 10 else None
+    ry_tc_3w      = statistics.median(_ry_vals[-15:]) if len(_ry_vals) >= 15 else None
+    ry_sma90      = sum(_ry_vals[-90:])  / 90         if len(_ry_vals) >= 90 else None
+    ry_sma90_prev = sum(_ry_vals[-91:-1]) / 90        if len(_ry_vals) >= 91 else None
 
     print("Fetching EDGAR...")
     lly_c,     lly_p     = edgar_revenue("LLY")
@@ -1159,7 +1189,25 @@ def main():
     rec_str     = ""
     lines.append("  CORE THESIS DRIVERS")
     lines.append(f"  {'-'*64}")
-    lines.append(f"  10Y Real Yield    {fmt(ry_val, 2, suffix='%') if ry_val else 'n/a'}{ry_4wk_str}{stale_flag(ry_date)}")
+    _lw = 18  # label column width, matches DXY / Oil term spread / GSR
+    if ry_val is not None:
+        ry_delta_10d    = ry_val - ry_10d if ry_10d is not None else None
+        ry_arrow        = "▼" if ry_delta_10d is not None and ry_delta_10d < 0 else "▲"
+        ry_cvstc        = (ry_val - ry_sma90) / ry_sma90 * 100 if ry_sma90 else None
+        ry_cvstc_prev   = (ry_prev - ry_sma90_prev) / ry_sma90_prev * 100 if ry_prev and ry_sma90_prev else None
+        ry_cvstc_delta  = ry_cvstc - ry_cvstc_prev if ry_cvstc is not None and ry_cvstc_prev is not None else None
+        lines.append(f"  {'RY':<{_lw}}{ry_val:.2f}%{stale_flag(ry_date)}")
+        if ry_10d is not None:
+            lines.append(f"  {'':<{_lw}}10d {ry_10d:.2f}%")
+        if ry_delta_10d is not None:
+            lines.append(f"  {'':<{_lw}}Δ10d {ry_arrow}{ry_delta_10d:.2f}%")
+        if ry_tc_3w is not None:
+            lines.append(f"  {'':<{_lw}}TC {ry_tc_3w:.2f}% (3wM)")
+        if ry_cvstc is not None:
+            delta_str = f" ({ry_cvstc_delta:+.2f}%)" if ry_cvstc_delta is not None else ""
+            lines.append(f"  {'':<{_lw}}CvsTC {ry_cvstc:+.2f}%{delta_str}")
+    else:
+        lines.append(f"  {'RY':<{_lw}}n/a")
     lines.append(f"  DXY               {fmt(dxy_price, 2) if dxy_price else 'n/a'}{dxy_4wk_str}")
     lines.append(f"  Oil term spread   {'$'+fmt(oil_spread,1)+'/bbl' if oil_spread is not None else 'n/a'}{oil_4wk_str}{stale_flag(oil_spot_date)}")
     lines.append(f"  GSR               {fmt(gs_ratio, 1) if gs_ratio else 'n/a'}{gsr_4wk_str}")
