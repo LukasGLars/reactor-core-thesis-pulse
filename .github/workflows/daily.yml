@@ -42,6 +42,18 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API }}
         run: python -c "from backfill_logs import patch_macro_log; patch_macro_log()"
 
+      - name: Backfill logs if not present
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API }}
+        run: |
+          lines=$(wc -l < macro_log.csv 2>/dev/null || echo 0)
+          if [ "$lines" -gt 1 ]; then
+            echo "Logs present (${lines} rows) — skipping backfill"
+          else
+            echo "Logs missing — running backfill..."
+            python backfill_logs.py
+          fi
+
       - name: Run Thesis Pulse
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

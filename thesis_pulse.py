@@ -4,7 +4,7 @@ Reactor Core Thesis Pulse v2.0
 Daily thesis monitoring for 8-position portfolio.
 Runs via GitHub Actions — sends email with raw data + recession tracker.
 """
-import requests, json, os, sys, smtplib, time, csv
+import requests, json, os, sys, smtplib, time, csv, statistics
 from datetime import date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -108,6 +108,29 @@ def fred_recent(series_id, lookback=20):
             print(f"  FRED {series_id} retry {attempt}/5: {e}")
             time.sleep(wait)
     return None, None, None, None
+
+def fred_series_vals(series_id):
+    """Returns (values_list, latest_date) — full history as list of floats."""
+    session = _make_session()
+    for attempt in range(1, 6):
+        try:
+            r = session.get(
+                fred_url(series_id),
+                headers={"User-Agent": "thesis-pulse/1.0"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            obs = r.json().get("observations", [])
+            rows = [(o["date"], float(o["value"])) for o in obs
+                    if o.get("value") not in (".", "")]
+            if not rows:
+                return [], None
+            return [v for _, v in rows], rows[-1][0]
+        except Exception as e:
+            wait = 0.5 * (2 ** (attempt - 1))
+            print(f"  FRED {series_id} retry {attempt}/5: {e}")
+            time.sleep(wait)
+    return [], None
 
 # ── YAHOO FINANCE ──────────────────────────────────────────
 def yahoo_history(symbol):
@@ -1235,7 +1258,14 @@ def main():
     usdsek  = yahoo_history("USDSEK=X")
 
     print("Fetching FRED...")
-    ry_val, ry_prev, ry_4w, ry_date = fred_recent("DFII10", lookback=20)
+    _ry_vals, ry_date  = fred_series_vals("DFII10")
+    ry_val        = _ry_vals[-1]   if len(_ry_vals) >= 1  else None
+    ry_prev       = _ry_vals[-2]   if len(_ry_vals) >= 2  else None
+    ry_4w         = _ry_vals[-20]  if len(_ry_vals) >= 20 else None
+    ry_10d        = _ry_vals[-10]  if len(_ry_vals) >= 10 else None
+    ry_tc_3w      = statistics.median(_ry_vals[-15:]) if len(_ry_vals) >= 15 else None
+    ry_sma90      = sum(_ry_vals[-90:])  / 90         if len(_ry_vals) >= 90 else None
+    ry_sma90_prev = sum(_ry_vals[-91:-1]) / 90        if len(_ry_vals) >= 91 else None
 
     print("Fetching EDGAR...")
     lly_c,     lly_p     = edgar_revenue("LLY")
