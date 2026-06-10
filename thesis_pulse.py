@@ -1357,6 +1357,10 @@ def main():
             lines.append(f"          {extra}")
         lines.append("")
 
+    _ry_delta_10d = ry_val - ry_10d if ry_val is not None and ry_10d is not None else None
+    _ry_arrow     = "▼" if _ry_delta_10d is not None and _ry_delta_10d < 0 else "▲"
+    _ry_10d_extra = (f"10d {ry_10d:.2f}%  Δ10d {_ry_arrow}{_ry_delta_10d:.2f}%"
+                     if _ry_delta_10d is not None else None)
     _thesis_block(
         "RY",
         f"{ry_val:.2f}%"          if ry_val          is not None else "n/a",
@@ -1364,6 +1368,7 @@ def main():
         f"{ry_med_3w:.2f}%"        if ry_med_3w       is not None else "n/a",
         f"{ry_prev_med_3w:.2f}%"   if ry_prev_med_3w  is not None else "n/a",
         ry_cvstc, prev_ry_cvstc,
+        extra=_ry_10d_extra,
     )
     _thesis_block(
         "DXY",
