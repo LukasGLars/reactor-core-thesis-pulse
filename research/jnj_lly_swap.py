@@ -43,6 +43,12 @@ CASH_DAILY = 0.03 / 252
 
 SHARED_W = {"WMT": 0.15, "CCJ": 0.10, "VRT": 0.10, "AVGO": 0.09}
 
+# Symbols that only became available after the OOS start — coverage check
+# computes from this date instead of the window start, and flags as n/a before it.
+AVAIL_FROM = {
+    "VRT": VRT_IPO,  # SPAC IPO Feb 2020; pre-IPO gap is by design
+}
+
 # FIX 4: sweep in 2pp increments — pharma total stays constant at 21%
 CONFIGS = {
     "Base  (LLY 15%, JNJ 6%)": {"LLY": 0.15, "JNJ": 0.06},
@@ -119,11 +125,14 @@ def fetch_yahoo(symbol):
 # ── data quality audit ────────────────────────────────────────────────────────
 
 def check_data_quality(prices_df, symbols):
-    """FIX 3: audit coverage and stale-price runs per ticker per period."""
+    """FIX 3: audit coverage and stale-price runs per ticker per period.
+    Symbols in AVAIL_FROM are checked only from their listing date so that
+    expected pre-IPO gaps are not flagged as data errors.
+    """
     print("\nDATA QUALITY AUDIT")
     print("-" * 58)
     STALE_RUN = 5      # flag if price identical for >5 consecutive sessions
-    COV_FLOOR = 0.90   # require ≥90% trading-day coverage
+    COV_FLOOR = 0.90   # require >=90% trading-day coverage from availability date
     issues = []
 
     for sym in symbols:
@@ -134,7 +143,16 @@ def check_data_quality(prices_df, symbols):
 
         for label, start, end in [("IS ", IS_START, IS_END),
                                    ("OOS", OOS_START, OOS_END)]:
-            window = prices_df.loc[start:end, sym]
+            # Shift start forward for symbols with known listing dates
+            eff_start = max(pd.Timestamp(start), AVAIL_FROM.get(sym, pd.Timestamp(start)))
+            eff_end   = pd.Timestamp(end)
+
+            if eff_start > eff_end:
+                # Entire period is before the symbol existed — expected, not an error
+                print(f"  {sym:<8} {label}: n/a (pre-listing)  ok")
+                continue
+
+            window = prices_df.loc[eff_start:eff_end, sym]
             total  = len(window)
             filled = int(window.notna().sum())
             pct    = filled / total if total > 0 else 0
