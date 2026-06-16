@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-research/jnj_lly_swap.py
+research/jnj_lly_swap.py  (v2 — validated)
 
 Terminal-wealth comparison: drop JNJ (6%) → add to LLY.
+Sweeps in 2pp increments to expose dose-response.
 
-Configs tested:
-  Base:     LLY 15%  JNJ 6%
-  Swap:     LLY 21%  JNJ 0%
+Fixes vs v1:
+  1. adjclose prices (dividend + split adjusted) instead of unadjusted close
+  2. Cash daily rate uses trading days (252) not calendar days (365)
+  3. Data quality audit: coverage %, stale-price runs, per-day weight-sum assertion
+  4. 4-config sweep: LLY 15→17→19→21%, JNJ 6→4→2→0%
 
 Signal: floor=15%, compress=10d  (recommended config from tactical research)
 IS:  2016-04-01 → 2026-03-31
 OOS: 2009-01-01 → 2016-03-31
-
-Year-by-year IS breakdown included.
 """
 
 import os, sys, time
@@ -30,20 +31,23 @@ DFII10_SMA_WINDOW = 90
 COMPRESS_WINDOW   = 10
 GOLD_FLOOR        = 0.15
 
-GSR_T1, GSR_T2   = 83.36, 86.45
-GSR_PEAK_WINDOW  = 60
-GSR_FALL_PCT     = 0.05
+GSR_T1, GSR_T2  = 83.36, 86.45
+GSR_PEAK_WINDOW = 60
+GSR_FALL_PCT    = 0.05
 
 GOLD_W   = 0.25
 SILVER_W = 0.10
 VRT_IPO  = pd.Timestamp("2020-02-07")
-CASH_DAILY = 0.03 / 365
+# FIX 2: use trading days so 3% cash yield compounds correctly
+CASH_DAILY = 0.03 / 252
 
-# Static weights shared between both configs
 SHARED_W = {"WMT": 0.15, "CCJ": 0.10, "VRT": 0.10, "AVGO": 0.09}
 
+# FIX 4: sweep in 2pp increments — pharma total stays constant at 21%
 CONFIGS = {
     "Base  (LLY 15%, JNJ 6%)": {"LLY": 0.15, "JNJ": 0.06},
+    "Step1 (LLY 17%, JNJ 4%)": {"LLY": 0.17, "JNJ": 0.04},
+    "Step2 (LLY 19%, JNJ 2%)": {"LLY": 0.19, "JNJ": 0.02},
     "Swap  (LLY 21%, JNJ 0%)": {"LLY": 0.21, "JNJ": 0.00},
 }
 
@@ -58,7 +62,7 @@ def fetch_fred(series_id):
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     for attempt in range(4):
         try:
-            r = requests.get(url, headers={"User-Agent": "jnj-lly-swap/1.0"}, timeout=30)
+            r = requests.get(url, headers={"User-Agent": "jnj-lly-swap/2.0"}, timeout=30)
             r.raise_for_status()
             if FRED_API_KEY:
                 obs  = r.json().get("observations", [])
@@ -82,6 +86,7 @@ def fetch_fred(series_id):
 
 
 def fetch_yahoo(symbol):
+    """Fetch dividend+split-adjusted prices; falls back to close for futures."""
     import datetime
     p1  = int(datetime.datetime(2000, 1, 1).timestamp())
     p2  = int(datetime.datetime.now().timestamp())
@@ -92,15 +97,77 @@ def fetch_yahoo(symbol):
         try:
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
             r.raise_for_status()
-            res    = r.json()["chart"]["result"][0]
-            ts     = pd.to_datetime(res["timestamp"], unit="s").normalize()
-            closes = res["indicators"]["quote"][0]["close"]
+            res = r.json()["chart"]["result"][0]
+            ts  = pd.to_datetime(res["timestamp"], unit="s").normalize()
+
+            # FIX 1: prefer adjclose (dividend + split adjusted);
+            # futures (GC=F, SI=F) don't have adjclose, so fall back to close
+            adj_block = res["indicators"].get("adjclose", [{}])
+            if adj_block and adj_block[0].get("adjclose"):
+                closes = adj_block[0]["adjclose"]
+            else:
+                closes = res["indicators"]["quote"][0]["close"]
+
             s = pd.Series(closes, index=ts, dtype=float)
             return s.dropna().sort_index()
         except Exception as e:
             print(f"  Yahoo {symbol} attempt {attempt+1}: {e}")
             time.sleep(2 ** attempt)
     return None
+
+
+# ── data quality audit ────────────────────────────────────────────────────────
+
+def check_data_quality(prices_df, symbols):
+    """FIX 3: audit coverage and stale-price runs per ticker per period."""
+    print("\nDATA QUALITY AUDIT")
+    print("-" * 58)
+    STALE_RUN = 5      # flag if price identical for >5 consecutive sessions
+    COV_FLOOR = 0.90   # require ≥90% trading-day coverage
+    issues = []
+
+    for sym in symbols:
+        if sym not in prices_df.columns:
+            print(f"  {sym:<8} MISSING entirely — CRITICAL")
+            issues.append(f"{sym}: missing")
+            continue
+
+        for label, start, end in [("IS ", IS_START, IS_END),
+                                   ("OOS", OOS_START, OOS_END)]:
+            window = prices_df.loc[start:end, sym]
+            total  = len(window)
+            filled = int(window.notna().sum())
+            pct    = filled / total if total > 0 else 0
+
+            cov_tag = "ok" if pct >= COV_FLOOR else "WARNING"
+            if pct < COV_FLOOR:
+                issues.append(f"{sym}/{label.strip()}: {pct:.0%} coverage")
+
+            # stale-run detection: consecutive sessions with zero price change
+            s = window.dropna()
+            max_stale = 0
+            if len(s) > 1:
+                run = 0
+                for v in (s.diff() == 0):
+                    run = run + 1 if v else 0
+                    max_stale = max(max_stale, run)
+
+            stale_tag = f"stale_max={max_stale}"
+            if max_stale > STALE_RUN:
+                stale_tag += " WARNING"
+                issues.append(f"{sym}/{label.strip()}: {max_stale} consecutive stale prices")
+
+            print(f"  {sym:<8} {label}: {pct:5.1%} coverage ({filled}/{total})  "
+                  f"{cov_tag:<8}  {stale_tag}")
+
+    print()
+    if not issues:
+        print("  All checks passed — data clean.")
+    else:
+        print(f"  {len(issues)} issue(s) flagged:")
+        for issue in issues:
+            print(f"    ✗ {issue}")
+    return issues
 
 
 # ── signals ───────────────────────────────────────────────────────────────────
@@ -140,6 +207,14 @@ def simulate(prices_df, gs, t1, t2, lly_w, jnj_w):
     vrt_w    = pd.Series(np.where(idx >= VRT_IPO, SHARED_W["VRT"], 0.0), index=idx)
     cash_w   = (GOLD_W - gold_w) + (SILVER_W - silver_w) + (SHARED_W["VRT"] - vrt_w)
 
+    # FIX 3: per-day weight-sum assertion — catches any accidental allocation drift
+    w_total = (
+        gold_w + silver_w + vrt_w + cash_w +
+        SHARED_W["WMT"] + SHARED_W["CCJ"] + SHARED_W["AVGO"] + lly_w + jnj_w
+    )
+    max_dev = float((w_total - 1.0).abs().max())
+    assert max_dev < 1e-9, f"Weight sum deviation {max_dev:.2e} exceeds tolerance"
+
     port_ret = (
         gold_w            * ar("GC=F")  +
         silver_w          * ar("SI=F")  +
@@ -173,7 +248,6 @@ def metrics(nav, rets):
 
 
 def year_by_year(nav):
-    """Annual returns from NAV series."""
     annual = {}
     for yr in range(nav.index[0].year, nav.index[-1].year + 1):
         yr_nav = nav[nav.index.year == yr]
@@ -186,12 +260,12 @@ def year_by_year(nav):
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    SEP = "=" * 72
+    SEP = "=" * 76
     print(SEP)
-    print(f"  JNJ → LLY SWAP  |  {date.today()}")
+    print(f"  JNJ → LLY SWAP v2 (validated)  |  {date.today()}")
+    print(f"  Fixes: adjclose · cash /252 · data audit · 4-step sweep")
     print(f"  Signal: floor={GOLD_FLOOR:.0%}, compress={COMPRESS_WINDOW}d")
-    print(f"  IS:  {IS_START} → {IS_END}")
-    print(f"  OOS: {OOS_START} → {OOS_END}")
+    print(f"  IS:  {IS_START} → {IS_END}   |   OOS: {OOS_START} → {OOS_END}")
     print(SEP)
 
     print("\nFetching DFII10...")
@@ -204,7 +278,7 @@ def main():
     tickers = {"GC=F": "Gold", "SI=F": "Silver", "LLY": "LLY",
                "WMT": "WMT", "JNJ": "JNJ", "CCJ": "CCJ",
                "VRT": "VRT", "AVGO": "AVGO"}
-    print("Fetching prices...")
+    print("Fetching prices (dividend-adjusted)...")
     prices_raw = {}
     for sym, name in tickers.items():
         print(f"  {name}...")
@@ -215,7 +289,12 @@ def main():
 
     prices_df = pd.DataFrame(prices_raw).sort_index()
 
-    # build signals
+    issues = check_data_quality(prices_df, list(tickers.keys()))
+    critical = [i for i in issues if "missing" in i or "coverage" in i]
+    if critical:
+        print(f"\nAborting — critical data issues: {critical}")
+        sys.exit(1)
+
     gs = build_gold_signal(dfii10)
     t1, t2 = compute_silver_signals(prices_raw["GC=F"], prices_raw["SI=F"])
 
@@ -227,68 +306,76 @@ def main():
         lly_w = pharma_w["LLY"]
         jnj_w = pharma_w["JNJ"]
 
-        # IS
         p_is = prices_df.loc[IS_START:IS_END]
         nav_is, ret_is = simulate(p_is, gs, t1, t2, lly_w, jnj_w)
-        results_is[label]  = metrics(nav_is, ret_is)
-        navs_is[label]     = nav_is
+        results_is[label] = metrics(nav_is, ret_is)
+        navs_is[label]    = nav_is
 
-        # OOS
         p_oos = prices_df.loc[OOS_START:OOS_END]
         nav_oos, ret_oos = simulate(p_oos, gs, t1, t2, lly_w, jnj_w)
         results_oos[label] = metrics(nav_oos, ret_oos)
 
-    # ── print results ─────────────────────────────────────────────────────────
+    # ── print IS ──────────────────────────────────────────────────────────────
+    W = 30
     print(f"\n{SEP}")
     print("  IN-SAMPLE RESULTS  (2016-04-01 → 2026-03-31)")
-    print(f"  {'Config':<32}  {'Sharpe':>7}  {'Calmar':>7}  {'CAGR':>8}  {'MaxDD':>8}  {'Terminal':>9}")
-    print(f"  {'-'*70}")
+    print(f"  {'Config':<{W}}  {'Sharpe':>7}  {'Calmar':>7}  {'CAGR':>8}  {'MaxDD':>8}  {'Terminal':>9}")
+    print(f"  {'-'*72}")
     for label, m in results_is.items():
-        print(f"  {label:<32}  {m['sharpe']:7.3f}  {m['calmar']:7.3f}  "
+        print(f"  {label:<{W}}  {m['sharpe']:7.3f}  {m['calmar']:7.3f}  "
               f"{m['cagr']:7.2%}  {m['max_dd']:7.2%}  {m['terminal']:9.4f}x")
 
-    print(f"\n  DELTA (Swap − Base)")
-    base_is  = results_is[list(CONFIGS.keys())[0]]
-    swap_is  = results_is[list(CONFIGS.keys())[1]]
-    print(f"  {'Sharpe':>10}  {'Calmar':>8}  {'CAGR':>8}  {'MaxDD':>8}  {'Terminal':>10}")
-    print(f"  {swap_is['sharpe']-base_is['sharpe']:+10.3f}  "
-          f"{swap_is['calmar']-base_is['calmar']:+8.3f}  "
-          f"{swap_is['cagr']-base_is['cagr']:+8.2%}  "
-          f"{swap_is['max_dd']-base_is['max_dd']:+8.2%}  "
-          f"{swap_is['terminal']-base_is['terminal']:+10.4f}x")
+    base_is = results_is[list(CONFIGS.keys())[0]]
+    print(f"\n  DELTAS vs Base (IS)")
+    print(f"  {'Config':<{W}}  {'ΔSharpe':>8}  {'ΔCalmar':>8}  {'ΔCAGR':>8}  {'ΔMaxDD':>8}  {'ΔTerminal':>10}")
+    print(f"  {'-'*72}")
+    for label, m in list(results_is.items())[1:]:
+        print(f"  {label:<{W}}  "
+              f"{m['sharpe']-base_is['sharpe']:+8.3f}  "
+              f"{m['calmar']-base_is['calmar']:+8.3f}  "
+              f"{m['cagr']-base_is['cagr']:+8.2%}  "
+              f"{m['max_dd']-base_is['max_dd']:+8.2%}  "
+              f"{m['terminal']-base_is['terminal']:+10.4f}x")
 
+    # ── print OOS ─────────────────────────────────────────────────────────────
     print(f"\n{SEP}")
     print("  OUT-OF-SAMPLE RESULTS  (2009-01-01 → 2016-03-31)")
-    print(f"  {'Config':<32}  {'Sharpe':>7}  {'Calmar':>7}  {'CAGR':>8}  {'MaxDD':>8}  {'Terminal':>9}")
-    print(f"  {'-'*70}")
+    print(f"  {'Config':<{W}}  {'Sharpe':>7}  {'Calmar':>7}  {'CAGR':>8}  {'MaxDD':>8}  {'Terminal':>9}")
+    print(f"  {'-'*72}")
     for label, m in results_oos.items():
-        print(f"  {label:<32}  {m['sharpe']:7.3f}  {m['calmar']:7.3f}  "
+        print(f"  {label:<{W}}  {m['sharpe']:7.3f}  {m['calmar']:7.3f}  "
               f"{m['cagr']:7.2%}  {m['max_dd']:7.2%}  {m['terminal']:9.4f}x")
 
-    print(f"\n  DELTA (Swap − Base)")
     base_oos = results_oos[list(CONFIGS.keys())[0]]
-    swap_oos = results_oos[list(CONFIGS.keys())[1]]
-    print(f"  {'Sharpe':>10}  {'Calmar':>8}  {'CAGR':>8}  {'MaxDD':>8}  {'Terminal':>10}")
-    print(f"  {swap_oos['sharpe']-base_oos['sharpe']:+10.3f}  "
-          f"{swap_oos['calmar']-base_oos['calmar']:+8.3f}  "
-          f"{swap_oos['cagr']-base_oos['cagr']:+8.2%}  "
-          f"{swap_oos['max_dd']-base_oos['max_dd']:+8.2%}  "
-          f"{swap_oos['terminal']-base_oos['terminal']:+10.4f}x")
+    print(f"\n  DELTAS vs Base (OOS)")
+    print(f"  {'Config':<{W}}  {'ΔSharpe':>8}  {'ΔCalmar':>8}  {'ΔCAGR':>8}  {'ΔMaxDD':>8}  {'ΔTerminal':>10}")
+    print(f"  {'-'*72}")
+    for label, m in list(results_oos.items())[1:]:
+        print(f"  {label:<{W}}  "
+              f"{m['sharpe']-base_oos['sharpe']:+8.3f}  "
+              f"{m['calmar']-base_oos['calmar']:+8.3f}  "
+              f"{m['cagr']-base_oos['cagr']:+8.2%}  "
+              f"{m['max_dd']-base_oos['max_dd']:+8.2%}  "
+              f"{m['terminal']-base_oos['terminal']:+10.4f}x")
 
-    # ── year-by-year IS ───────────────────────────────────────────────────────
-    labels = list(CONFIGS.keys())
-    yby_base = year_by_year(navs_is[labels[0]])
-    yby_swap = year_by_year(navs_is[labels[1]])
+    # ── year-by-year IS sweep ─────────────────────────────────────────────────
+    labels   = list(CONFIGS.keys())
+    yby      = {lbl: year_by_year(navs_is[lbl]) for lbl in labels}
+    all_yrs  = sorted(set().union(*[set(y.keys()) for y in yby.values()]))
 
     print(f"\n{SEP}")
-    print("  YEAR-BY-YEAR IS — Base vs Swap vs Delta")
-    print(f"  {'Year':>6}  {'Base':>9}  {'Swap':>9}  {'Δ':>8}")
-    print(f"  {'-'*38}")
-    for yr in sorted(set(yby_base) | set(yby_swap)):
-        b = yby_base.get(yr, float("nan"))
-        s = yby_swap.get(yr, float("nan"))
+    print("  YEAR-BY-YEAR IS — dose-response across swap steps")
+    print(f"  {'Year':>6}  {'Base':>9}  {'Step1':>9}  {'Step2':>9}  {'Swap':>9}  {'Swap−Base':>10}")
+    print(f"  {'-'*60}")
+    for yr in all_yrs:
+        vals = [yby[lbl].get(yr, float("nan")) for lbl in labels]
+        b, s = vals[0], vals[-1]
         d = s - b if not (pd.isna(b) or pd.isna(s)) else float("nan")
-        print(f"  {yr:>6}  {b:8.2%}  {s:8.2%}  {d:+7.2%}")
+        row = f"  {yr:>6}"
+        for v in vals:
+            row += f"  {v:8.2%}" if not pd.isna(v) else f"  {'n/a':>8}"
+        row += f"  {d:+9.2%}" if not pd.isna(d) else f"  {'n/a':>9}"
+        print(row)
 
     print(f"\n{SEP}")
 
