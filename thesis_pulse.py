@@ -628,7 +628,6 @@ HEDGES:
 CARRY:
 - LLY: price {facts['lly_px']} ({facts['lly_dd']} from 52wH) | revenue {facts['lly_rev']} {facts['lly_rev_yoy']} YoY ({facts['lly_rev_date']})
 - WMT: price {facts['wmt_px']} ({facts['wmt_dd']} from 52wH) | revenue {facts['wmt_rev']} {facts['wmt_rev_yoy']} YoY ({facts['wmt_rev_date']})
-- JNJ: price {facts['jnj_px']} ({facts['jnj_dd']} from 52wH) | revenue {facts['jnj_rev']} {facts['jnj_rev_yoy']} YoY | div/share {facts['jnj_div']} {facts['jnj_div_yoy']} YoY
 
 CYCLICAL:
 - CCJ: price {facts['ccj_px']} ({facts['ccj_dd']} from 52wH)
@@ -660,7 +659,7 @@ MACRO: [2 sentences. Are macro conditions favorable, neutral, or headwind for th
 
 HEDGES: [2-3 sentences covering gold and silver. Thesis intact? G/S ratio context?]
 
-CARRY: [2-3 sentences covering LLY, WMT, JNJ. Revenue trends vs thesis requirements?]
+CARRY: [2-3 sentences covering LLY and WMT. Revenue trends vs thesis requirements?]
 
 CYCLICAL: [2-3 sentences. Uranium thesis intact? Include oil term spread signal and its current reading.]
 
@@ -1270,11 +1269,9 @@ def main():
     print("Fetching EDGAR...")
     lly_c,     lly_p     = edgar_revenue("LLY")
     wmt_c,     wmt_p     = edgar_revenue("WMT")
-    jnj_c,     jnj_p     = edgar_revenue("JNJ")
     vrt_c,     vrt_p     = edgar_revenue("VRT")
     avgo_c,    avgo_p    = edgar_revenue("AVGO")
     nvda_c,    nvda_p    = edgar_revenue("NVDA")
-    jnj_div_c, jnj_div_p = edgar_concept("JNJ", "CommonStockDividendsPerShareCashPaid")
     msft_c,    msft_p    = edgar_concept("MSFT",  "PaymentsToAcquirePropertyPlantAndEquipment")
     googl_c,   googl_p   = edgar_concept("GOOGL", "PaymentsToAcquirePropertyPlantAndEquipment")
     amzn_c,    amzn_p    = edgar_concept("AMZN",  "PaymentsToAcquireProductiveAssets")
@@ -1429,7 +1426,6 @@ def main():
     silver_levels = get_tech_levels("SI%3DF");  time.sleep(1)
     lly_levels    = get_tech_levels("LLY");     time.sleep(1)
     wmt_levels    = get_tech_levels("WMT");     time.sleep(1)
-    jnj_levels    = get_tech_levels("JNJ");     time.sleep(1)
     ccj_levels    = get_tech_levels("CCJ");     time.sleep(1)
     vrt_levels    = get_tech_levels("VRT");     time.sleep(1)
     avgo_levels   = get_tech_levels("AVGO")
@@ -1438,7 +1434,6 @@ def main():
     lines.append(_pos_line("Silver", silver, silver_levels, suppress_vol=True))
     lines.append(_pos_line("LLY",    lly_px, lly_levels))
     lines.append(_pos_line("WMT",    wmt_px, wmt_levels))
-    lines.append(_pos_line("JNJ",    jnj_px, jnj_levels))
     lines.append(_pos_line("CCJ",    ccj_px, ccj_levels))
     lines.append(_pos_line("VRT",    vrt_px, vrt_levels))
     lines.append(_pos_line("AVGO",   avgo_px, avgo_levels))
