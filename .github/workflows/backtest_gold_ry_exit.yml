@@ -1,0 +1,22 @@
+name: Backtest Gold RY Exit
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests numpy pandas
+
+      - name: Run gold RY exit backtest
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API }}
+        run: python research/gold_ry_exit.py
