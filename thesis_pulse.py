@@ -34,8 +34,8 @@ _dir = os.path.dirname(os.path.abspath(__file__))
 
 # ── PORTFOLIO WEIGHTS (v3) ──────────────────────────────────
 V3_WEIGHTS = {
-    "gold": 0.25, "silver": 0.10, "lly": 0.15, "wmt": 0.15,
-    "vrt":  0.10, "ccj":   0.10, "avgo": 0.09, "jnj": 0.06,
+    "gold": 0.25, "silver": 0.10, "lly": 0.21, "wmt": 0.15,
+    "vrt":  0.10, "ccj":   0.10, "avgo": 0.09, "jnj": 0.00,
 }
 with open(os.path.join(_dir, "thesis_v3.md"),       encoding="utf-8") as f: THESIS_DOC       = f.read()
 with open(os.path.join(_dir, "invalidation_v3.md"), encoding="utf-8") as f: INVALIDATION_DOC = f.read()
