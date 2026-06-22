@@ -28,6 +28,7 @@ OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # symbol -> (label, hex colour)
 SYMBOLS = {
     "GC=F":  ("Gold",    "#F5A623"),
+    "SI=F":  ("Silver",  "#C0C0C0"),
     "^GSPC": ("S&P 500", "#78909C"),
     "LLY":   ("LLY",     "#43A047"),
     "WMT":   ("WMT",     "#1E88E5"),
