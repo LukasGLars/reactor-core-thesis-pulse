@@ -232,10 +232,11 @@ def main():
     print(f"  T2 signal        : {'ON  ← deploy to 10%' if t2_now else 'OFF'}")
 
     # recent signal history
+    cutoff = prices.index[-1] - pd.Timedelta(days=90)
     recent = pd.DataFrame({
         "GSR": gsr, "Pullback%": pullback*100,
         "T1": t1_sig, "T2": t2_sig
-    }).last("90D")
+    }).loc[cutoff:]
     t1_days = int(recent["T1"].sum())
     t2_days = int(recent["T2"].sum())
     print(f"\n  Last 90 days: T1 ON {t1_days} days  |  T2 ON {t2_days} days")
