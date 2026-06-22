@@ -123,11 +123,15 @@ def simulate(prices, dfii10, start, end, gold_max, silver_w, equity_weights, lab
         eq_w = {k: (vrt_w if k == "vrt" else equity_weights[k]) for k in eq_names}
         cash_w = max(0.0, 1.0 - gw - sw - sum(eq_w.values()))
 
-        day_ret = (gw   * rets["gold"].iloc[i]
-                 + sw   * rets["silver"].iloc[i]
-                 + cash_w * CASH_DAILY)
-        for k, w in eq_w.items():
-            day_ret += w * rets[k].iloc[i]
+        day_ret = cash_w * CASH_DAILY
+        for sym_, w_ in [("gold", gw), ("silver", sw)] + list(eq_w.items()):
+            if w_ == 0.0:
+                continue
+            r_ = rets[sym_].iloc[i]
+            if np.isnan(r_):
+                day_ret += w_ * CASH_DAILY  # no price data → treat as cash
+            else:
+                day_ret += w_ * r_
         port_ret.iloc[i] = day_ret
 
     port_ret = port_ret.fillna(0.0)
