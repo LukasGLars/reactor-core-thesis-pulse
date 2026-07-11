@@ -1,8 +1,10 @@
 name: Thesis Pulse Daily
 
 on:
-  schedule:
-    - cron: '0 7 * * 1-5'   # 07:00 UTC = 09:00 CET, weekdays
+  # Automatic daily schedule deactivated 2026-07-10 (stops the daily email).
+  # Manual trigger still available via workflow_dispatch below.
+  # schedule:
+  #   - cron: '0 7 * * 1-5'   # 07:00 UTC = 09:00 CET, weekdays
   workflow_dispatch:          # manual trigger
 
 permissions:
